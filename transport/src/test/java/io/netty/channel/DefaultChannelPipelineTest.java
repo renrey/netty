@@ -1503,53 +1503,6 @@ public class DefaultChannelPipelineTest {
     }
 
     @Test
-    public void testWriteThrowsReleaseMessage() {
-        testWriteThrowsReleaseMessage0(false);
-    }
-
-    @Test
-    public void testWriteAndFlushThrowsReleaseMessage() {
-        testWriteThrowsReleaseMessage0(true);
-    }
-
-    private void testWriteThrowsReleaseMessage0(boolean flush) {
-        ReferenceCounted referenceCounted = new AbstractReferenceCounted() {
-            @Override
-            protected void deallocate() {
-                // NOOP
-            }
-
-            @Override
-            public ReferenceCounted touch(Object hint) {
-                return this;
-            }
-        };
-        assertEquals(1, referenceCounted.refCnt());
-
-        Channel channel = new LocalChannel(group.next());
-        channel.pipeline().addLast(new ChannelHandler() {
-            @Override
-            public ChannelFuture write(ChannelHandlerContext ctx, Object msg) {
-                throw new IllegalStateException();
-            }
-        });
-        channel.register().syncUninterruptibly();
-
-        final CompletionException writeException;
-        if (flush) {
-            writeException = assertThrows(CompletionException.class,
-                    () -> channel.writeAndFlush(referenceCounted).sync());
-        } else {
-            writeException = assertThrows(CompletionException.class,
-                    () -> channel.write(referenceCounted).sync());
-        }
-        assertThat(writeException.getCause(), Matchers.instanceOf(IllegalStateException.class));
-        assertEquals(0, referenceCounted.refCnt());
-
-        channel.close().syncUninterruptibly();
-    }
-
-    @Test
     @Timeout(value = 5000, unit = TimeUnit.MILLISECONDS)
     public void handlerAddedStateUpdatedBeforeHandlerAddedDoneForceEventLoop() throws InterruptedException {
         handlerAddedStateUpdatedBeforeHandlerAddedDone(true);
