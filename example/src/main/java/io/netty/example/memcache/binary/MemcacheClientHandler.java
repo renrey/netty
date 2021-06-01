@@ -26,6 +26,7 @@ import io.netty.handler.codec.memcache.binary.DefaultBinaryMemcacheRequest;
 import io.netty.handler.codec.memcache.binary.DefaultFullBinaryMemcacheRequest;
 import io.netty.handler.codec.memcache.binary.FullBinaryMemcacheResponse;
 import io.netty.util.CharsetUtil;
+import io.netty.util.ReferenceCountUtil;
 
 public class MemcacheClientHandler implements ChannelHandler {
 
@@ -42,8 +43,9 @@ public class MemcacheClientHandler implements ChannelHandler {
             BinaryMemcacheRequest req = new DefaultBinaryMemcacheRequest(key);
             req.setOpcode(BinaryMemcacheOpcodes.GET);
 
-           return  ctx.write(req);
-        } else if (command.startsWith("set ")) {
+            return ctx.write(req);
+        }
+        if (command.startsWith("set ")) {
             String[] parts = command.split(" ", 3);
             if (parts.length < 3) {
                 throw new IllegalArgumentException("Malformed Command: " + command);
@@ -59,9 +61,11 @@ public class MemcacheClientHandler implements ChannelHandler {
             BinaryMemcacheRequest req = new DefaultFullBinaryMemcacheRequest(key, extras, content);
             req.setOpcode(BinaryMemcacheOpcodes.SET);
 
-            return  ctx.write(req);
+            return ctx.write(req);
         } else {
-            throw new IllegalStateException("Unknown Message: " + msg);
+            IllegalStateException ex = new IllegalStateException("Unknown Message: " + msg);
+            ReferenceCountUtil.release(msg);
+            return ctx.newFailedFuture(ex);
         }
     }
 
