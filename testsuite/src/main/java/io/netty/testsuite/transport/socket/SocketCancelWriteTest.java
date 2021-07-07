@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SocketCancelWriteTest extends AbstractSocketTest {
@@ -59,14 +58,14 @@ public class SocketCancelWriteTest extends AbstractSocketTest {
         Channel cc = cb.connect(sc.localAddress()).sync().channel();
 
         ChannelFuture f = cc.write(a);
-        assertFalse(f.cancel(false));
+        assertTrue(f.cancel(false));
         cc.writeAndFlush(b);
         cc.write(c);
         ChannelFuture f2 = cc.write(d);
-        assertFalse(f2.cancel(false));
+        assertTrue(f2.cancel(false));
         cc.writeAndFlush(e);
 
-        while (sh.counter < 5) {
+        while (sh.counter < 3) {
             if (sh.exception.get() != null) {
                 break;
             }
@@ -96,7 +95,7 @@ public class SocketCancelWriteTest extends AbstractSocketTest {
             throw ch.exception.get();
         }
         assertEquals(0, ch.counter);
-        assertEquals(Unpooled.wrappedBuffer(new byte[]{'a', 'b', 'c', 'd', 'e'}), sh.received);
+        assertEquals(Unpooled.wrappedBuffer(new byte[]{'b', 'c', 'e'}), sh.received);
     }
 
     private static class TestHandler extends SimpleChannelInboundHandler<ByteBuf> {

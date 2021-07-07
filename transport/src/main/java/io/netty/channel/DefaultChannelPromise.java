@@ -51,9 +51,6 @@ public class DefaultChannelPromise extends DefaultPromise<Void> implements Chann
     public DefaultChannelPromise(Channel channel, EventExecutor executor) {
         super(executor);
         this.channel = requireNonNull(channel, "channel");
-        // Our ChannelPromise implementations are uncancellable as cancelling IO is racy anyway and we not propagate
-        // this.
-        setUncancellable();
     }
 
     @Override
