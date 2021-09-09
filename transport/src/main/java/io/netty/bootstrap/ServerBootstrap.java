@@ -139,15 +139,20 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         final Entry<ChannelOption<?>, Object>[] currentChildOptions = newOptionsArray(childOptions);
         final Entry<AttributeKey<?>, Object>[] currentChildAttrs = newAttributesArray(childAttrs);
 
+        // ChannelPipeline加入一个初始的ChannelInitializer
         p.addLast(new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(final Channel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
+                // 1.先加入链式的handler, 加入到pipeline的最后
+                // 这里worker的handler链
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
                     pipeline.addLast(handler);
                 }
 
+                // 最后再加入ServerBootstrapAcceptor（用来把channel注册childGroup）
+                // 并且启动channel的EventLoop线程（如果没启动的话）
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
@@ -204,14 +209,16 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         @Override
         @SuppressWarnings("unchecked")
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            // 等于当前channel已经是childGroup的channel, 所以叫child
             final Channel child = (Channel) msg;
-
+            // 把ServerBootstrap构造时的ChildHandler加入到channel(NioSocketChannel)的pipeline中
             child.pipeline().addLast(childHandler);
 
             setChannelOptions(child, childOptions, logger);
             setAttributes(child, childAttrs);
 
             try {
+                // 又把channel注册到childGroup中的一个线程
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {

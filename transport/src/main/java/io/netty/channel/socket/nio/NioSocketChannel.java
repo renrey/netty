@@ -297,6 +297,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     }
 
     private void doBind0(SocketAddress localAddress) throws Exception {
+        // java api绑定端口
         if (PlatformDependent.javaVersion() >= 7) {
             SocketUtils.bind(javaChannel(), localAddress);
         } else {
@@ -306,6 +307,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     @Override
     protected boolean doConnect(SocketAddress remoteAddress, SocketAddress localAddress) throws Exception {
+        // java api原生绑定端口
         if (localAddress != null) {
             doBind0(localAddress);
         }
@@ -346,6 +348,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+        // 可读取大小更新到attemptedBytesRead
         allocHandle.attemptedBytesRead(byteBuf.writableBytes());
         return byteBuf.writeBytes(javaChannel(), allocHandle.attemptedBytesRead());
     }
@@ -377,6 +380,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+        // java channel
         SocketChannel ch = javaChannel();
         int writeSpinCount = config().getWriteSpinCount();
         do {
@@ -405,6 +409,10 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     ByteBuffer buffer = nioBuffers[0];
                     int attemptedBytes = buffer.remaining();
+                    /**
+                     * 写入
+                     * channel
+                     */
                     final int localWrittenBytes = ch.write(buffer);
                     if (localWrittenBytes <= 0) {
                         incompleteWrite(true);
@@ -420,6 +428,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     // We limit the max amount to int above so cast is safe
                     long attemptedBytes = in.nioBufferSize();
+                    /**
+                     * 写入channel
+                     */
                     final long localWrittenBytes = ch.write(nioBuffers, 0, nioBufferCnt);
                     if (localWrittenBytes <= 0) {
                         incompleteWrite(true);

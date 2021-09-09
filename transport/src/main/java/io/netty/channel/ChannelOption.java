@@ -79,6 +79,9 @@ public class ChannelOption<T> extends AbstractConstant<ChannelOption<T>> {
     public static final ChannelOption<RecvByteBufAllocator> RCVBUF_ALLOCATOR = valueOf("RCVBUF_ALLOCATOR");
     public static final ChannelOption<MessageSizeEstimator> MESSAGE_SIZE_ESTIMATOR = valueOf("MESSAGE_SIZE_ESTIMATOR");
 
+    /**
+     * 连接超时
+     */
     public static final ChannelOption<Integer> CONNECT_TIMEOUT_MILLIS = valueOf("CONNECT_TIMEOUT_MILLIS");
     /**
      * @deprecated Use {@link MaxMessagesRecvByteBufAllocator}
@@ -113,6 +116,9 @@ public class ChannelOption<T> extends AbstractConstant<ChannelOption<T>> {
 
     public static final ChannelOption<Boolean> SO_BROADCAST = valueOf("SO_BROADCAST");
     public static final ChannelOption<Boolean> SO_KEEPALIVE = valueOf("SO_KEEPALIVE");
+    /**
+     * 请求、响应 缓冲区大小
+     */
     public static final ChannelOption<Integer> SO_SNDBUF = valueOf("SO_SNDBUF");
     public static final ChannelOption<Integer> SO_RCVBUF = valueOf("SO_RCVBUF");
     public static final ChannelOption<Boolean> SO_REUSEADDR = valueOf("SO_REUSEADDR");

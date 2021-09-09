@@ -70,8 +70,13 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     /**
      * Create a new instance
+     * 创建NioServerSocketChannel
      */
     public NioServerSocketChannel() {
+        /**
+         * newSocket 创建 ServerSocketChannel
+         * 给这个channel配置非阻塞
+         */
         this(newSocket(DEFAULT_SELECTOR_PROVIDER));
     }
 
@@ -130,6 +135,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     @SuppressJava6Requirement(reason = "Usage guarded by java version check")
     @Override
     protected void doBind(SocketAddress localAddress) throws Exception {
+        // ServerSocketChannel绑定端口
         if (PlatformDependent.javaVersion() >= 7) {
             javaChannel().bind(localAddress, config.getBacklog());
         } else {
@@ -144,10 +150,16 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     @Override
     protected int doReadMessages(List<Object> buf) throws Exception {
+    	// 接收并建立连接，SocketChannel
         SocketChannel ch = SocketUtils.accept(javaChannel());
 
         try {
             if (ch != null) {
+                // 把channel缓存到buf
+                /**
+                 * 把channel封装成一个NioSocketChannel（配置非堵塞、监听事件为可读）
+                 * 然后放入buf（list）中
+                 */
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
             }

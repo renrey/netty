@@ -229,6 +229,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
     /**
      * Create a new {@link Channel} and bind it.
+     * 启动第一步，绑定端口
      */
     public ChannelFuture bind() {
         validate();
@@ -269,6 +270,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     private ChannelFuture doBind(final SocketAddress localAddress) {
+        // 1。 创建socketchannel
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
         if (regFuture.cause() != null) {
@@ -278,6 +280,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         if (regFuture.isDone()) {
             // At this point we know that the registration was complete and successful.
             ChannelPromise promise = channel.newPromise();
+            // 2。实际绑定端口
             doBind0(regFuture, channel, localAddress, promise);
             return promise;
         } else {
@@ -307,7 +310,12 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     final ChannelFuture initAndRegister() {
         Channel channel = null;
         try {
+            /**
+             * 1. 通过反射创建channel，一般为NioServerSocketChannel
+             * @see ReflectiveChannelFactory#newChannel()
+             */
             channel = channelFactory.newChannel();
+            // 设置一些配置
             init(channel);
         } catch (Throwable t) {
             if (channel != null) {
@@ -320,6 +328,11 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             return new DefaultChannelPromise(new FailedChannel(), GlobalEventExecutor.INSTANCE).setFailure(t);
         }
 
+        /**
+         * 2. 往EventLoopGroup注册这个channel
+         * NioEventLoopGroup
+         *  但实际register方法是MultithreadEventLoopGroup
+         */
         ChannelFuture regFuture = config().group().register(channel);
         if (regFuture.cause() != null) {
             if (channel.isRegistered()) {
@@ -349,6 +362,10 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
         // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
         // the pipeline in its channelRegistered() implementation.
+        /**
+         * 给eventLoop一个绑定任务
+         * 给channel绑定端口
+         */
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {

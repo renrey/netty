@@ -34,7 +34,9 @@ public class DefaultMaxBytesRecvByteBufAllocator implements MaxBytesRecvByteBufA
 
     private final class HandleImpl implements ExtendedHandle {
         private int individualReadMax;
+        // 剩余容量，可用长度
         private int bytesToRead;
+        // 上次读取长度
         private int lastBytesRead;
         private int attemptBytesRead;
         private final UncheckedBooleanSupplier defaultMaybeMoreSupplier = new UncheckedBooleanSupplier() {
@@ -46,6 +48,7 @@ public class DefaultMaxBytesRecvByteBufAllocator implements MaxBytesRecvByteBufA
 
         @Override
         public ByteBuf allocate(ByteBufAllocator alloc) {
+        	// guess()预估需要给ByteBuf分配的大小
             return alloc.ioBuffer(guess());
         }
 

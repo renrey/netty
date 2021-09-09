@@ -18,6 +18,7 @@ package io.netty.channel;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.socket.ChannelOutputShutdownEvent;
 import io.netty.channel.socket.ChannelOutputShutdownException;
+import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.DefaultAttributeMap;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.ObjectUtil;
@@ -72,6 +73,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         this.parent = parent;
         id = newId();
         unsafe = newUnsafe();
+        // 创建pipeline
         pipeline = newChannelPipeline();
     }
 
@@ -267,6 +269,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     @Override
     public ChannelFuture connect(SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) {
+        // 调用pipeline的connect
         return pipeline.connect(remoteAddress, localAddress, promise);
     }
 
@@ -473,13 +476,20 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         new IllegalStateException("incompatible event loop type: " + eventLoop.getClass().getName()));
                 return;
             }
-
+            // 设置channel指定的eventloop
             AbstractChannel.this.eventLoop = eventLoop;
 
             if (eventLoop.inEventLoop()) {
                 register0(promise);
+           // 初始化进入这里（当前线程跟EventLoop不是同一线程）
             } else {
                 try {
+
+                    /**
+                     * 1. 当前channel往eventloop的selector中注册所有监听事件
+                     * 2. 启动eventLoop线程
+                     * 注意这里是异步的，不会堵塞主流程
+                     */
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -505,6 +515,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+                /**
+                 * 当前channel往eventloop的selector中注册所有监听事件
+                 */
                 doRegister();
                 neverRegistered = false;
                 registered = true;
@@ -914,6 +927,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             outboundBuffer.addFlush();
+            // 刷入
             flush0();
         }
 
@@ -950,6 +964,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
+                // 执行写入？
+                /**
+                 * 普通通信发送
+                 * @see NioSocketChannel#doWrite(io.netty.channel.ChannelOutboundBuffer)
+                 */
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 handleWriteError(t);

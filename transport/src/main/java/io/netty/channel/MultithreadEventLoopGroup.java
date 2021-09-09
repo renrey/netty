@@ -65,6 +65,7 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
      */
     protected MultithreadEventLoopGroup(int nThreads, Executor executor, EventExecutorChooserFactory chooserFactory,
                                      Object... args) {
+        // 没设置线程数，默认可用核数*2
         super(nThreads == 0 ? DEFAULT_EVENT_LOOP_THREADS : nThreads, executor, chooserFactory, args);
     }
 
@@ -83,6 +84,8 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
 
     @Override
     public ChannelFuture register(Channel channel) {
+        // 获取线程，进行注册
+		// 实际是SingleThreadEventLoop的方法
         return next().register(channel);
     }
 

@@ -21,6 +21,7 @@ import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.ServerChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 
 import java.io.IOException;
 import java.net.PortUnreachableException;
@@ -76,6 +77,10 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             try {
                 try {
                     do {
+                        /**
+                         * 读消息、读去建立连接
+                         * @see  NioServerSocketChannel#doReadMessages(java.util.List)
+                         */
                         int localRead = doReadMessages(readBuf);
                         if (localRead == 0) {
                             break;
@@ -92,11 +97,19 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 }
 
                 int size = readBuf.size();
+                // 遍历所有buf已缓存的channel
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
+                    // 执行pipeline的Read
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
+                // 清空buf
                 readBuf.clear();
+                /**
+                 * 就是说buf就是用来接收所有建立连接的NioSocketChannel（里面实际是SocketChannel）
+                 * 然后把buf的channel都执行自己pipeline的fireChannelRead，
+                 * 执行完后，全从buf删掉，就是说这些NioSocketChannel跟当前的ServerSocketChannel没交互了
+                 */
                 allocHandle.readComplete();
                 pipeline.fireChannelReadComplete();
 

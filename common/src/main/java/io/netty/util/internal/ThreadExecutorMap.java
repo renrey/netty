@@ -52,8 +52,10 @@ public final class ThreadExecutorMap {
         ObjectUtil.checkNotNull(executor, "executor");
         ObjectUtil.checkNotNull(eventExecutor, "eventExecutor");
         return new Executor() {
+            // 就是一个创建线程去执行command
             @Override
             public void execute(final Runnable command) {
+                // ThreadPerTaskExecutor中exec就是创建一个线程执行这个任务
                 executor.execute(apply(command, eventExecutor));
             }
         };
@@ -71,6 +73,7 @@ public final class ThreadExecutorMap {
             public void run() {
                 setCurrentEventExecutor(eventExecutor);
                 try {
+                    // 执行command
                     command.run();
                 } finally {
                     setCurrentEventExecutor(null);

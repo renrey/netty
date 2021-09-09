@@ -15,6 +15,7 @@
  */
 package io.netty.bootstrap;
 
+import io.netty.channel.AbstractChannel;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -136,6 +137,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     public ChannelFuture connect(SocketAddress remoteAddress) {
         ObjectUtil.checkNotNull(remoteAddress, "remoteAddress");
         validate();
+        /**
+         * 执行入口
+         */
         return doResolveAndConnect(remoteAddress, config.localAddress());
     }
 
@@ -159,6 +163,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
             if (!regFuture.isSuccess()) {
                 return regFuture;
             }
+            /**
+             * 执行入口
+             */
             return doResolveAndConnect0(channel, remoteAddress, localAddress, channel.newPromise());
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
@@ -199,6 +206,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
 
             if (!resolver.isSupported(remoteAddress) || resolver.isResolved(remoteAddress)) {
                 // Resolver has no idea about what to do with the specified remote address or it's resolved already.
+                /**
+                 * 执行入口
+                 */
                 doConnect(remoteAddress, localAddress, promise);
                 return promise;
             }
@@ -246,6 +256,10 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
+                /**
+                 * 执行入口
+                 * @see AbstractChannel#connect(java.net.SocketAddress, java.net.SocketAddress, io.netty.channel.ChannelPromise)
+                 */
                 if (localAddress == null) {
                     channel.connect(remoteAddress, connectPromise);
                 } else {

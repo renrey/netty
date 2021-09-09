@@ -195,14 +195,17 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return addLast(null, name, handler);
     }
 
+    /**
+     * 加入pipeline
+     */
     @Override
     public final ChannelPipeline addLast(EventExecutorGroup group, String name, ChannelHandler handler) {
         final AbstractChannelHandlerContext newCtx;
         synchronized (this) {
             checkMultiplicity(handler);
-
+            // 新建一个AbstractChannelHandlerContext， 现在已有HeadContext、TailContext
             newCtx = newContext(group, filterName(name, handler), handler);
-
+            // 加入AbstractChannelHandlerContext的链表中
             addLast0(newCtx);
 
             // If the registered is false it means that the channel was not registered on an eventLoop yet.
@@ -981,6 +984,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     @Override
     public final ChannelFuture connect(
             SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) {
+        // 从尾部开始调用
         return tail.connect(remoteAddress, localAddress, promise);
     }
 
@@ -1302,6 +1306,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
+    /**
+     * 一般默认的主要落在这
+     */
     final class HeadContext extends AbstractChannelHandlerContext
             implements ChannelOutboundHandler, ChannelInboundHandler {
 
@@ -1331,6 +1338,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         @Override
         public void bind(
                 ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise) {
+            // 通过unsafe在java原生nio绑定端口
             unsafe.bind(localAddress, promise);
         }
 

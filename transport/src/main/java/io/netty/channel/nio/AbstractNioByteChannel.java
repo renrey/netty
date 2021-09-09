@@ -63,6 +63,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
      * @param ch                the underlying {@link SelectableChannel} on which it operates
      */
     protected AbstractNioByteChannel(Channel parent, SelectableChannel ch) {
+        // 监听事件为可读
         super(parent, ch, SelectionKey.OP_READ);
     }
 
@@ -139,8 +140,14 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 return;
             }
             final ChannelPipeline pipeline = pipeline();
+            // 当前ByteBufAllocator, ByteBuf分配器
+            /**
+             * 默认PooledByteBufAllocator或者UnpooledByteBufAllocator
+             */
             final ByteBufAllocator allocator = config.getAllocator();
+            // AdaptiveRecvByteBufAllocator
             final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
+            // 重置可读空间
             allocHandle.reset(config);
 
             ByteBuf byteBuf = null;
@@ -148,7 +155,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             try {
                 do {
                     byteBuf = allocHandle.allocate(allocator);
+                    // doReadBytes 读取报文，字节数组写入ByteBuf
+                    // allocHandle更新本次读取长度、剩余容量
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
+                    // 没读取到数据
                     if (allocHandle.lastBytesRead() <= 0) {
                         // nothing was read. release the buffer.
                         byteBuf.release();
@@ -163,8 +173,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
 
                     allocHandle.incMessagesRead(1);
                     readPending = false;
+                    // 触发Read
                     pipeline.fireChannelRead(byteBuf);
                     byteBuf = null;
+                // 还有空间继续读
                 } while (allocHandle.continueReading());
 
                 allocHandle.readComplete();

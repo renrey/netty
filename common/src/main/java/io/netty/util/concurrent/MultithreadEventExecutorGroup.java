@@ -70,17 +70,25 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
      */
     protected MultithreadEventExecutorGroup(int nThreads, Executor executor,
                                             EventExecutorChooserFactory chooserFactory, Object... args) {
+        /**
+         * nThreads: 没设置线程数，默认可用核数*2
+          */
         checkPositive(nThreads, "nThreads");
-
+        /**
+         * 默认ThreadPerTaskExecutor
+         */
         if (executor == null) {
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
 
+        // 线程池内线程，对应EventExecutor
         children = new EventExecutor[nThreads];
-
+        // 初始化线程
         for (int i = 0; i < nThreads; i ++) {
             boolean success = false;
             try {
+                // 创建线程
+                // 实际返回是一个NioEventLoop
                 children[i] = newChild(executor, args);
                 success = true;
             } catch (Exception e) {
@@ -107,7 +115,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                 }
             }
         }
-
+        // 初始化线程选择器，next()返回线程的随机选择方法
         chooser = chooserFactory.newChooser(children);
 
         final FutureListener<Object> terminationListener = new FutureListener<Object>() {
@@ -118,7 +126,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                 }
             }
         };
-
+        // 每个线程加入关闭处理的listener
         for (EventExecutor e: children) {
             e.terminationFuture().addListener(terminationListener);
         }
@@ -134,6 +142,10 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
 
     @Override
     public EventExecutor next() {
+        /**
+         * 默认io.netty.util.concurrent.DefaultEventExecutorChooserFactory.PowerOfTwoEventExecutorChooser
+         * 超过2个线程
+         */
         return chooser.next();
     }
 

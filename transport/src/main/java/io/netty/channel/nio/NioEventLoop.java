@@ -139,6 +139,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 rejectedExecutionHandler);
         this.provider = ObjectUtil.checkNotNull(selectorProvider, "selectorProvider");
         this.selectStrategy = ObjectUtil.checkNotNull(strategy, "selectStrategy");
+        // 打开Selector
         final SelectorTuple selectorTuple = openSelector();
         this.selector = selectorTuple.selector;
         this.unwrappedSelector = selectorTuple.unwrappedSelector;
@@ -445,7 +446,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
                     case SelectStrategy.BUSY_WAIT:
                         // fall-through to SELECT since the busy-wait is not supported with NIO
-
+                    // 一直循环select监听
                     case SelectStrategy.SELECT:
                         long curDeadlineNanos = nextScheduledTaskDeadlineNanos();
                         if (curDeadlineNanos == -1L) {
@@ -454,6 +455,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         nextWakeupNanos.set(curDeadlineNanos);
                         try {
                             if (!hasTasks()) {
+                                // 有限时select
                                 strategy = select(curDeadlineNanos);
                             }
                         } finally {
@@ -487,13 +489,20 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         // Ensure we always run tasks.
                         ranTasks = runAllTasks();
                     }
+                // selector 监听到事件
                 } else if (strategy > 0) {
                     final long ioStartTime = System.nanoTime();
                     try {
+                        /**
+                         * 处理监听到的SelectionKey
+                         */
                         processSelectedKeys();
                     } finally {
                         // Ensure we always run tasks.
                         final long ioTime = System.nanoTime() - ioStartTime;
+                        /**
+                         * 执行exec（）提交的全部任务
+                         */
                         ranTasks = runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
                     }
                 } else {
@@ -577,6 +586,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     private void processSelectedKeys() {
+        // 处理
         if (selectedKeys != null) {
             processSelectedKeysOptimized();
         } else {
@@ -610,12 +620,14 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             return;
         }
 
+        // 遍历selectedKeys
         Iterator<SelectionKey> i = selectedKeys.iterator();
         for (;;) {
             final SelectionKey k = i.next();
             final Object a = k.attachment();
+            // 取出
             i.remove();
-
+            // 处理
             if (a instanceof AbstractNioChannel) {
                 processSelectedKey(k, (AbstractNioChannel) a);
             } else {
@@ -650,7 +662,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             selectedKeys.keys[i] = null;
 
             final Object a = k.attachment();
-
+            // 处理SelectionKey
             if (a instanceof AbstractNioChannel) {
                 processSelectedKey(k, (AbstractNioChannel) a);
             } else {
@@ -707,6 +719,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 unsafe.finishConnect();
             }
 
+            // 可写
             // Process OP_WRITE first as we may be able to write some queued buffers and so free memory.
             if ((readyOps & SelectionKey.OP_WRITE) != 0) {
                 // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
@@ -715,7 +728,18 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
             // Also check for readOps of 0 to workaround possible JDK bug which may otherwise lead
             // to a spin loop
+            /**
+             * 可读、可建立
+             */
             if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
+                /**
+                 * 建立连接
+                 * NioServerSocketChannel  unsafe: NioMessageUnsafe (AbstractNioMessageChannel创建的)
+                 * @see AbstractNioMessageChannel.NioMessageUnsafe#read()
+                 * 后续通信接收
+                 * NioSocketChannel unsafe:NioByteUnsafe (AbstractNioByteChannel创建)
+                 * @see AbstractNioByteChannel.NioByteUnsafe#read()
+                 */
                 unsafe.read();
             }
         } catch (CancelledKeyException ignored) {

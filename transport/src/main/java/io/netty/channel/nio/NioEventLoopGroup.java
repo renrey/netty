@@ -166,8 +166,10 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
 
     @Override
     protected EventLoop newChild(Executor executor, Object... args) throws Exception {
+        // 获取SelectorProvider
         SelectorProvider selectorProvider = (SelectorProvider) args[0];
         SelectStrategyFactory selectStrategyFactory = (SelectStrategyFactory) args[1];
+        // 拒绝策略
         RejectedExecutionHandler rejectedExecutionHandler = (RejectedExecutionHandler) args[2];
         EventLoopTaskQueueFactory taskQueueFactory = null;
         EventLoopTaskQueueFactory tailTaskQueueFactory = null;
@@ -179,6 +181,7 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         if (argsLength > 4) {
             tailTaskQueueFactory = (EventLoopTaskQueueFactory) args[4];
         }
+        // 其实就是给这个线程创建一个Selector，还有必要的属性
         return new NioEventLoop(this, executor, selectorProvider,
                 selectStrategyFactory.newSelectStrategy(),
                 rejectedExecutionHandler, taskQueueFactory, tailTaskQueueFactory);
