@@ -94,6 +94,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         succeededFuture = new SucceededChannelFuture(channel, null);
         voidPromise =  new VoidChannelPromise(channel, true);
 
+        // 链表头尾把自己作为dummy node
         tail = new TailContext(this);
         head = new HeadContext(this);
 

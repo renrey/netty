@@ -486,8 +486,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 try {
 
                     /**
-                     * 1. 当前channel往eventloop的selector中注册所有监听事件
-                     * 2. 启动eventLoop线程
+                     * 1. 启动eventLoop线程
+                     * 2. 当前channel往eventloop的selector中注册所有监听事件
                      * 注意这里是异步的，不会堵塞主流程
                      */
                     eventLoop.execute(new Runnable() {
@@ -527,6 +527,10 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 pipeline.invokeHandlerAddedIfNeeded();
 
                 safeSetSuccess(promise);
+                /**
+                 * 触发pipeline的channelRegistered
+                 * 例如
+                 */
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.

@@ -312,10 +312,14 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         try {
             /**
              * 1. 通过反射创建channel，一般为NioServerSocketChannel
+             * 创建一个channel
              * @see ReflectiveChannelFactory#newChannel()
              */
             channel = channelFactory.newChannel();
-            // 设置一些配置
+            /**
+             * 初始化channel的pipeline等设置
+             * 有serverchannel、socketchannel的
+             */
             init(channel);
         } catch (Throwable t) {
             if (channel != null) {
@@ -363,13 +367,14 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
         // the pipeline in its channelRegistered() implementation.
         /**
-         * 给eventLoop一个绑定任务
-         * 给channel绑定端口
+         * 给eventLoop提交一个绑定任务：
+         * 给channel绑定端口（实际利用java原生绑定端口）
          */
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
                 if (regFuture.isSuccess()) {
+                    // netty channel绑定端口！！！
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     promise.setFailure(regFuture.cause());

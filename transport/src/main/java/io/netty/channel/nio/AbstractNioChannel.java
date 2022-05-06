@@ -383,9 +383,11 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         for (;;) {
             try {
                 /**
-				 * 当前channel往eventloop的selector中注册所有监听事件
+				 * （1）把当前channel（的java channel）往Eventloop的(java) selector中注册所有监听事件
                  * 1. ServerSocketChannel监听建立连接事件
                  * 2. 后面的SocketChannel 监听可读可写事件
+                 *
+                 * （2）并且把当前的（netty）channel对象 绑定到selectionKey，用于处理事件时拿回channel对象
                  */
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;

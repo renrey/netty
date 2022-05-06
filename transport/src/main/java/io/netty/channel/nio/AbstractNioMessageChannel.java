@@ -78,7 +78,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 try {
                     do {
                         /**
-                         * 读消息、读去建立连接
+                         * 接受建立连接，生成java channel，并生成对应netty channel
                          * @see  NioServerSocketChannel#doReadMessages(java.util.List)
                          */
                         int localRead = doReadMessages(readBuf);
@@ -97,10 +97,15 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 }
 
                 int size = readBuf.size();
-                // 遍历所有buf已缓存的channel
+                // 遍历本次建立的netty channel
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
                     // 执行pipeline的Read
+                    /**
+                     * 例如ServerBootstrapAcceptor：
+                     * 1. 把childHandler加入到这个channel的pipeline
+                     * 2. 并把channel注册到childGroup的中随机一个EventGroup进行监听处理
+                     */
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
                 // 清空buf
