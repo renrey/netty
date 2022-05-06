@@ -271,8 +271,11 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             CodecOutputList out = CodecOutputList.newInstance();
             try {
                 first = cumulation == null;
+                // 1. 把这次进入buf追加到当前的cumulation（并把buf释放）
+                // 用于解决拆包问题
                 cumulation = cumulator.cumulate(ctx.alloc(),
                         first ? Unpooled.EMPTY_BUFFER : cumulation, (ByteBuf) msg);
+                // 2. 对已缓冲的cumulation进行decode
                 callDecode(ctx, cumulation, out);
             } catch (DecoderException e) {
                 throw e;
@@ -280,6 +283,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 throw new DecoderException(e);
             } finally {
                 try {
+                    // 当前缓冲的cumulation已处理完，进行释放
                     if (cumulation != null && !cumulation.isReadable()) {
                         numReads = 0;
                         cumulation.release();
@@ -293,6 +297,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
                     int size = out.size();
                     firedChannelRead |= out.insertSinceRecycled();
+                    // 下一个Handler进行处理
                     fireChannelRead(ctx, out, size);
                 } finally {
                     out.recycle();
@@ -443,6 +448,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 }
 
                 int oldInputLength = in.readableBytes();
+                // 进行调用子类实现的decode方法
                 decodeRemovalReentryProtection(ctx, in, out);
 
                 // Check if this handler was removed before continuing the loop.
@@ -453,6 +459,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     break;
                 }
 
+                // 当前内容不能直接解析完成，直接返回
                 if (out.isEmpty()) {
                     if (oldInputLength == in.readableBytes()) {
                         break;

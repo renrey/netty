@@ -73,6 +73,7 @@ public final class ChannelOutboundBuffer {
 
     private final Channel channel;
 
+    // 链表如下：
     // Entry(flushedEntry) --> ... Entry(unflushedEntry) --> ... Entry(tailEntry)
     //
     // The Entry that is the first in the linked-list structure that was flushed
@@ -114,12 +115,15 @@ public final class ChannelOutboundBuffer {
     public void addMessage(Object msg, int size, ChannelPromise promise) {
         Entry entry = Entry.newInstance(msg, size, total(msg), promise);
         if (tailEntry == null) {
+            // 确保链表空
             flushedEntry = null;
         } else {
+            // 加入到链表末尾
             Entry tail = tailEntry;
             tail.next = entry;
         }
-        tailEntry = entry;
+        tailEntry = entry;// 尾指针指向更新
+        // 没有第一个未flushed，则执行自己
         if (unflushedEntry == null) {
             unflushedEntry = entry;
         }
@@ -139,7 +143,9 @@ public final class ChannelOutboundBuffer {
         //
         // See https://github.com/netty/netty/issues/2577
         Entry entry = unflushedEntry;
+        // 有待flush的对象
         if (entry != null) {
+            // 等于把当前第一个待flush对象开始的链表提前到flushed上
             if (flushedEntry == null) {
                 // there is no flushedEntry yet, so start with the entry
                 flushedEntry = entry;
@@ -155,6 +161,7 @@ public final class ChannelOutboundBuffer {
             } while (entry != null);
 
             // All flushed so reset unflushedEntry
+            // 等于把原未flushed都作为已flush
             unflushedEntry = null;
         }
     }
@@ -406,7 +413,10 @@ public final class ChannelOutboundBuffer {
         int nioBufferCount = 0;
         final InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
         ByteBuffer[] nioBuffers = NIO_BUFFERS.get(threadLocalMap);
-        Entry entry = flushedEntry;
+        Entry entry = flushedEntry; // 实际待操作的对象链表头
+        /**
+         * 一直循环遍历已flushed的链表，直到类型不是ByteBuf
+         */
         while (isFlushedEntry(entry) && entry.msg instanceof ByteBuf) {
             if (!entry.cancelled) {
                 ByteBuf buf = (ByteBuf) entry.msg;
@@ -457,6 +467,7 @@ public final class ChannelOutboundBuffer {
                     }
                 }
             }
+            // 遍历下一个flushed的
             entry = entry.next;
         }
         this.nioBufferCount = nioBufferCount;

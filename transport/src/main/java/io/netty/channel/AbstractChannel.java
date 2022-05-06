@@ -917,7 +917,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 }
                 return;
             }
-
+            // 把对象加入flush->flushed的链表（标记为unflushed）
             outboundBuffer.addMessage(msg, size, promise);
         }
 
@@ -930,6 +930,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 把当前unflushed提前到flush（标记更新已flush）
             outboundBuffer.addFlush();
             // 刷入
             flush0();

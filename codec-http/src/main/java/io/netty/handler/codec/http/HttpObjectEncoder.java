@@ -81,6 +81,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
     @Override
     protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
         ByteBuf buf = null;
+        // 处理header相关编码
         if (msg instanceof HttpMessage) {
             if (state != ST_INIT) {
                 throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg)
@@ -89,15 +90,20 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
 
             @SuppressWarnings({ "unchecked", "CastConflictsWithInstanceof" })
             H m = (H) msg;
-
+            // 创建ByteBuf
             buf = ctx.alloc().buffer((int) headersEncodedSizeAccumulator);
             // Encode the message.
+            /**
+             * 开始对完整消息encode
+             */
+            // 1. 写入第一行
             encodeInitialLine(buf, m);
             state = isContentAlwaysEmpty(m) ? ST_CONTENT_ALWAYS_EMPTY :
                     HttpUtil.isTransferEncodingChunked(m) ? ST_CONTENT_CHUNK : ST_CONTENT_NON_CHUNK;
-
+            // 去掉一些header
             sanitizeHeadersBeforeEncode(m, state == ST_CONTENT_ALWAYS_EMPTY);
 
+            // 2. 写入header
             encodeHeaders(m.headers(), buf);
             ByteBufUtil.writeShortBE(buf, CRLF_SHORT);
 
@@ -118,11 +124,14 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             }
         }
 
+        // 处理内容的编码
         if (msg instanceof HttpContent || msg instanceof ByteBuf || msg instanceof FileRegion) {
             switch (state) {
+                // 没有写header，所以报错
                 case ST_INIT:
                     throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg)
                         + ", state: " + state);
+                    // 非分chunk块
                 case ST_CONTENT_NON_CHUNK:
                     final long contentLength = contentLength(msg);
                     if (contentLength > 0) {
@@ -131,10 +140,12 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                             buf.writeBytes(((HttpContent) msg).content());
                             out.add(buf);
                         } else {
+                            // buf可写入空间 < 内容长度
+                            // 把当前已写header的ByteBuf、原始msg对象 返回到out中
                             if (buf != null) {
                                 out.add(buf);
                             }
-                            out.add(encodeAndRetain(msg));
+                            out.add(encodeAndRetain(msg));// retain保证msg对象引用计数>0
                         }
 
                         if (msg instanceof LastHttpContent) {
@@ -145,11 +156,12 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                     }
 
                     // fall-through!
+                    // 无内容
                 case ST_CONTENT_ALWAYS_EMPTY:
 
                     if (buf != null) {
                         // We allocated a buffer so add it now.
-                        out.add(buf);
+                        out.add(buf);// 返回header
                     } else {
                         // Need to produce some output otherwise an
                         // IllegalStateException will be thrown as we did not write anything
@@ -158,15 +170,18 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                         // buffer.
                         // Writing an empty buffer will not actually write anything on the wire, so if there is a user
                         // error with msg it will not be visible externally
-                        out.add(Unpooled.EMPTY_BUFFER);
+                        out.add(Unpooled.EMPTY_BUFFER); // 返回空报文
                     }
 
                     break;
+                 // 内容分chunk传输
                 case ST_CONTENT_CHUNK:
+                    // header的ByteBuf加入
                     if (buf != null) {
                         // We allocated a buffer so add it now.
                         out.add(buf);
                     }
+                    // chunked内容处理，只是申请对应的ByteBuf
                     encodeChunkedContent(ctx, msg, contentLength(msg), out);
 
                     break;
@@ -178,6 +193,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                 state = ST_INIT;
             }
         } else if (buf != null) {
+            // 直接把header的ByteBuf返回
             out.add(buf);
         }
     }
@@ -196,11 +212,16 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
     private void encodeChunkedContent(ChannelHandlerContext ctx, Object msg, long contentLength, List<Object> out) {
         if (contentLength > 0) {
             String lengthHex = Long.toHexString(contentLength);
+            // 申请内容的ByteBuf （头占2个字节）
             ByteBuf buf = ctx.alloc().buffer(lengthHex.length() + 2);
+            //写入
             buf.writeCharSequence(lengthHex, CharsetUtil.US_ASCII);
             ByteBufUtil.writeShortBE(buf, CRLF_SHORT);
+            // 返回只写入头的内容ByteBuf
             out.add(buf);
+            // 返回原始对象msg
             out.add(encodeAndRetain(msg));
+            // 返回CRLF_BUF
             out.add(CRLF_BUF.duplicate());
         }
 
