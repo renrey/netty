@@ -125,8 +125,10 @@ public class DefaultFileRegion extends AbstractReferenceCounted implements FileR
             throw new IllegalReferenceCountException(0);
         }
         // Call open to make sure fc is initialized. This is a no-oop if we called it before.
+        // 1. 开启1个随机访问的FileChannel
         open();
 
+        // 2. transfer传输，零拷贝sendFile
         long written = file.transferTo(this.position + position, count, target);
         if (written > 0) {
             transferred += written;

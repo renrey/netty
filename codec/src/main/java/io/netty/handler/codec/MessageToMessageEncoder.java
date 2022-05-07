@@ -103,10 +103,13 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
         } catch (Throwable t) {
             throw new EncoderException(t);
         } finally {
+            // 有内容写入out
             if (out != null) {
                 try {
                     final int sizeMinusOne = out.size() - 1;
+                    // 只有一个
                     if (sizeMinusOne == 0) {
+                        // 写入
                         ctx.write(out.getUnsafe(0), promise);
                     } else if (sizeMinusOne > 0) {
                         // Check if we can use a voidPromise for our extra writes to reduce GC-Pressure

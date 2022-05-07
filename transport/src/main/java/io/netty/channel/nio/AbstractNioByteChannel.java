@@ -224,6 +224,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // Directly return here so incompleteWrite(...) is not called.
             return 0;
         }
+        // 写入发送
         return doWriteInternal(in, in.current());
     }
 
@@ -245,14 +246,16 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             }
         } else if (msg instanceof FileRegion) {
             FileRegion region = (FileRegion) msg;
+            // 文件已经传完
             if (region.transferred() >= region.count()) {
                 in.remove();
                 return 0;
             }
-
+            // 传输文件
             long localFlushedAmount = doWriteFileRegion(region);
             if (localFlushedAmount > 0) {
                 in.progress(localFlushedAmount);
+                // 如果文件已经全发完，就从entry链表删掉
                 if (region.transferred() >= region.count()) {
                     in.remove();
                 }
@@ -303,6 +306,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
 
     protected final void incompleteWrite(boolean setOpWrite) {
         // Did not write completely.
+        // 还有内容未全部写完，还需要继续监听WRITE事件
         if (setOpWrite) {
             setOpWrite();
         } else {
@@ -310,9 +314,13 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // use our write quantum. In this case we no longer want to set the write OP because the socket is still
             // writable (as far as we know). We will find out next time we attempt to write if the socket is writable
             // and set the write OP if necessary.
+            // 当前的已完成，清空监听WRITE事件
             clearOpWrite();
 
             // Schedule flush again later so other tasks can be picked up in the meantime
+            /**
+             * 提交下个flush任务，可以继续循环执行
+             */
             eventLoop().execute(flushTask);
         }
     }

@@ -262,6 +262,7 @@ public final class ChannelOutboundBuffer {
      */
     public boolean remove() {
         Entry e = flushedEntry;
+        // 链表没entry，直接清空
         if (e == null) {
             clearNioBuffers();
             return false;
@@ -271,6 +272,7 @@ public final class ChannelOutboundBuffer {
         ChannelPromise promise = e.promise;
         int size = e.pendingSize;
 
+        // 从链表清除这个entry
         removeEntry(e);
 
         if (!e.cancelled) {
@@ -281,6 +283,7 @@ public final class ChannelOutboundBuffer {
         }
 
         // recycle the entry
+        // 回收entry
         e.recycle();
 
         return true;
@@ -341,6 +344,7 @@ public final class ChannelOutboundBuffer {
      */
     public void removeBytes(long writtenBytes) {
         for (;;) {
+            // 链表头entry的msg对象
             Object msg = current();
             if (!(msg instanceof ByteBuf)) {
                 assert writtenBytes == 0;
@@ -350,7 +354,7 @@ public final class ChannelOutboundBuffer {
             final ByteBuf buf = (ByteBuf) msg;
             final int readerIndex = buf.readerIndex();
             final int readableBytes = buf.writerIndex() - readerIndex;
-
+            // 已经写完，清掉链表头entry
             if (readableBytes <= writtenBytes) {
                 if (writtenBytes != 0) {
                     progress(readableBytes);
@@ -358,6 +362,7 @@ public final class ChannelOutboundBuffer {
                 }
                 remove();
             } else { // readableBytes > writtenBytes
+                // 没写完，更新readerIndex下标，用来记录目前已写入的位置
                 if (writtenBytes != 0) {
                     buf.readerIndex(readerIndex + (int) writtenBytes);
                     progress(writtenBytes);
@@ -365,12 +370,14 @@ public final class ChannelOutboundBuffer {
                 break;
             }
         }
+        // 清空掉本次生成的java ByteBuffer数组，以便gc
         clearNioBuffers();
     }
 
     // Clear all ByteBuffer from the array so these can be GC'ed.
     // See https://github.com/netty/netty/issues/3837
     private void clearNioBuffers() {
+        // 清理本次操作生成的java ByteBuffer数组，以便被gc
         int count = nioBufferCount;
         if (count > 0) {
             nioBufferCount = 0;
@@ -416,6 +423,7 @@ public final class ChannelOutboundBuffer {
         Entry entry = flushedEntry; // 实际待操作的对象链表头
         /**
          * 一直循环遍历已flushed的链表，直到类型不是ByteBuf
+         * 例如遇到FileRegion就不循环了，count=0
          */
         while (isFlushedEntry(entry) && entry.msg instanceof ByteBuf) {
             if (!entry.cancelled) {

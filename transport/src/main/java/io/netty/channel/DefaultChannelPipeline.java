@@ -118,6 +118,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     private AbstractChannelHandlerContext newContext(EventExecutorGroup group, String name, ChannelHandler handler) {
+        // pipeline还是当前的
+        // 一般使用addLast，不会给group，所以childExecutor一般返回null，对应executor直接使用channel的Eventloop
         return new DefaultChannelHandlerContext(this, childExecutor(group), name, handler);
     }
 

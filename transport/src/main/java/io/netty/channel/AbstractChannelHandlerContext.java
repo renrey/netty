@@ -129,6 +129,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public EventExecutor executor() {
+        // Head就是null（一般使用都不会设group）, 所以返回当前channel的eventLoop
         if (executor == null) {
             return channel().eventLoop();
         } else {
@@ -815,10 +816,14 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             throw e;
         }
 
+        // 实际找前面的handler
         final AbstractChannelHandlerContext next = findContextOutbound(flush ?
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
         final Object m = pipeline.touch(msg, next);
+        // 默认是当前channel的Eventloop，除非add handler的时候指定了其他group
         EventExecutor executor = next.executor();
+        // 当前执行线程是否在channel的Eventloop线程
+        // 正常都是进来，马上执行（同步堵塞）next的（前面handler）的write、flush方法
         if (executor.inEventLoop()) {
             if (flush) {
                 next.invokeWriteAndFlush(m, promise);
@@ -826,6 +831,13 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
                 next.invokeWrite(m, promise);
             }
         } else {
+            /**
+             * 一般出现这种情况：
+             * 1. handler处理时，异步交给其他线程（业务线程）执行，并执行当前方法
+             * 2. 当前处理handler的eventloop group与next的不一样
+             *
+             * 生成WriteTask，提交next的eventloop线程执行（加入队列），不是马上执行（异步）！！！
+             */
             final WriteTask task = WriteTask.newInstance(next, m, promise, flush);
             if (!safeExecute(executor, task, promise, m, !flush)) {
                 // We failed to submit the WriteTask. We need to cancel it so we decrement the pending bytes

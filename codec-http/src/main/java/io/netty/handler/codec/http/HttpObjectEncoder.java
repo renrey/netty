@@ -137,11 +137,12 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                     if (contentLength > 0) {
                         if (buf != null && buf.writableBytes() >= contentLength && msg instanceof HttpContent) {
                             // merge into other buffer for performance reasons
+                            // 内容写到已有的ByteBuf中（一起）
                             buf.writeBytes(((HttpContent) msg).content());
                             out.add(buf);
                         } else {
                             // buf可写入空间 < 内容长度
-                            // 把当前已写header的ByteBuf、原始msg对象 返回到out中
+                            // 把当前已写header、内容2种ByteBuf 返回到out中（分开）
                             if (buf != null) {
                                 out.add(buf);
                             }
@@ -219,7 +220,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             ByteBufUtil.writeShortBE(buf, CRLF_SHORT);
             // 返回只写入头的内容ByteBuf
             out.add(buf);
-            // 返回原始对象msg
+            // 内容ByteBuf
             out.add(encodeAndRetain(msg));
             // 返回CRLF_BUF
             out.add(CRLF_BUF.duplicate());
