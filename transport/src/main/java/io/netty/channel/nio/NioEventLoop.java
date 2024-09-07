@@ -15,13 +15,7 @@
  */
 package io.netty.channel.nio;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelException;
-import io.netty.channel.EventLoop;
-import io.netty.channel.EventLoopException;
-import io.netty.channel.EventLoopTaskQueueFactory;
-import io.netty.channel.SelectStrategy;
-import io.netty.channel.SingleThreadEventLoop;
+import io.netty.channel.*;
 import io.netty.util.IntSupplier;
 import io.netty.util.concurrent.RejectedExecutionHandler;
 import io.netty.util.internal.ObjectUtil;
@@ -52,7 +46,14 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * {@link SingleThreadEventLoop} implementation which register the {@link Channel}'s to a
  * {@link Selector} and so does the multi-plexing of these in the event loop.
+ * el类：可监听io事件，并在 java线程池的线程中处理io事件
+ * 对外作用：
+ * 1. 监听已注册的channel
+ * 2. 处理这些channel的io事件
+ * 3. 执行任务队列 -》就是pipeline handler，正常来说，处理io事件后，再执行相关pipeline方法
  *
+ * 核心方法：
+ * 1. run -》线程池线程对 任务逻辑消费（io事件）的逻辑 ，非监听线程
  */
 public final class NioEventLoop extends SingleThreadEventLoop {
 
@@ -113,6 +114,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
      */
     private Selector selector;
     private Selector unwrappedSelector;
+
+    // 当select监听到的有io事件的key
     private SelectedSelectionKeySet selectedKeys;
 
     private final SelectorProvider provider;
@@ -135,11 +138,20 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     NioEventLoop(NioEventLoopGroup parent, Executor executor, SelectorProvider selectorProvider,
                  SelectStrategy strategy, RejectedExecutionHandler rejectedExecutionHandler,
                  EventLoopTaskQueueFactory taskQueueFactory, EventLoopTaskQueueFactory tailTaskQueueFactory) {
+        /**
+         * 注意这里2个任务队列 默认创建
+         *  使用netty提供的队列 MpscUnboundedArrayQueue （老版本有unsafe）or MpscUnboundedAtomicArrayQueue！！！
+         *
+         *  addTaskWakesUp = false：新增任务 不会唤醒线程
+         *
+         *  executor： java原生线程池 -》用于创建java线程
+         */
+        // 1. 创建任务队列 2. 传入线程的通用参数
         super(parent, executor, false, newTaskQueue(taskQueueFactory), newTaskQueue(tailTaskQueueFactory),
                 rejectedExecutionHandler);
         this.provider = ObjectUtil.checkNotNull(selectorProvider, "selectorProvider");
         this.selectStrategy = ObjectUtil.checkNotNull(strategy, "selectStrategy");
-        // 打开Selector
+        // 3. 通过selectorProvider打开（java nio）Selector -》毕竟el group需要select监听 io事件
         final SelectorTuple selectorTuple = openSelector();
         this.selector = selectorTuple.selector;
         this.unwrappedSelector = selectorTuple.unwrappedSelector;
@@ -148,6 +160,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     private static Queue<Runnable> newTaskQueue(
             EventLoopTaskQueueFactory queueFactory) {
         if (queueFactory == null) {
+            // 创建netty提供的队列 MpscUnboundedArrayQueue （老版本有unsafe）or MpscUnboundedAtomicArrayQueue
             return newTaskQueue0(DEFAULT_MAX_PENDING_TASKS);
         }
         return queueFactory.newTaskQueue(DEFAULT_MAX_PENDING_TASKS);
@@ -454,8 +467,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         }
                         nextWakeupNanos.set(curDeadlineNanos);
                         try {
+                            // 没任务在队列中，进行select阻塞
                             if (!hasTasks()) {
-                                // 有限时select
+                                // 有限时select -> 不能长时间阻塞
                                 strategy = select(curDeadlineNanos);
                             }
                         } finally {
@@ -480,7 +494,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 needsToSelectAgain = false;
                 final int ioRatio = this.ioRatio;
                 boolean ranTasks;
+                // 处理io事件与执行任务  执行比例
                 if (ioRatio == 100) {
+                    // 100 代表先处理io事件, 再执行任务
                     try {
                         if (strategy > 0) {
                             processSelectedKeys();
@@ -494,7 +510,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     final long ioStartTime = System.nanoTime();
                     try {
                         /**
-                         * 处理监听到的SelectionKey
+                         * 还是先处理监听到的SelectionKey
                          */
                         processSelectedKeys();
                     } finally {
@@ -502,6 +518,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         final long ioTime = System.nanoTime() - ioStartTime;
                         /**
                          * 执行队列中的任务
+                         * 按照比例执行任务
                          * 执行exec（）提交的全部任务
                          */
                         ranTasks = runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
@@ -665,6 +682,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             /**
              * 通过attachment()拿回对应的netty Channel
              */
+            // 正常是对应channel
             final Object a = k.attachment();
             // 处理SelectionKey
             if (a instanceof AbstractNioChannel) {
@@ -710,6 +728,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         try {
+            // 处理io事件
+
+
             int readyOps = k.readyOps();
             // We first need to call finishConnect() before try to trigger a read(...) or write(...) as otherwise
             // the NIO JDK channel implementation may throw a NotYetConnectedException.
@@ -717,21 +738,27 @@ public final class NioEventLoop extends SingleThreadEventLoop {
              * 可发起连接
              */
             if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
+                // 客户端（serverchannel 连接用的） -》发起连接
                 // remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking
                 // See https://github.com/netty/netty/issues/924
                 int ops = k.interestOps();
-                ops &= ~SelectionKey.OP_CONNECT;
+                ops &= ~SelectionKey.OP_CONNECT;// 移除监听OP_CONNECT，不移除select会一直返回，不阻塞
                 k.interestOps(ops);
 
-                unsafe.finishConnect();
+                unsafe.finishConnect();// 主要还是触发pipeline相关周期方法（ChannelActive）
             }
 
             /**
              * 可发送写，直接调用unsafe的flush
              */
+            // 可写
+            // 服务端发送响应、客户端发生请求
             // Process OP_WRITE first as we may be able to write some queued buffers and so free memory.
             if ((readyOps & SelectionKey.OP_WRITE) != 0) {
                 // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
+                /**
+                 * @see AbstractChannel.AbstractUnsafe#flush0()
+                 */
                 ch.unsafe().forceFlush();
             }
 
@@ -742,10 +769,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
              */
             if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
                 /**
-                 * 建立连接
+                 * 服务端 可建立连接 -》reactor
                  * NioServerSocketChannel  unsafe: NioMessageUnsafe (AbstractNioMessageChannel创建的)
                  * @see AbstractNioMessageChannel.NioMessageUnsafe#read()
-                 * 后续通信接收
+                 *
+                 * 客户端 接收响应、服务端接受请求
                  * NioSocketChannel unsafe:NioByteUnsafe (AbstractNioByteChannel创建)
                  * @see AbstractNioByteChannel.NioByteUnsafe#read()
                  */

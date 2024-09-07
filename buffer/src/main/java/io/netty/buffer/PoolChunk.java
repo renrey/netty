@@ -158,7 +158,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
     /**
      * manage all subpages in this chunk
      */
-    private final PoolSubpage<T>[] subpages;
+    private final PoolSubpage<T>[] subpages;// 数量就是page数
 
     private final int pageSize;
     private final int pageShifts;
@@ -191,14 +191,19 @@ final class PoolChunk<T> implements PoolChunkMetric {
         this.chunkSize = chunkSize;
         freeBytes = chunkSize;
 
+        // 每个PageIdx（page段）都创建队列对象
         runsAvail = newRunsAvailqueueArray(maxPageIdx);
         runsAvailMap = new LongLongHashMap(-1);
+
+        // subpages 即PoolSubpage，数量就是page数
+        // 就是chunk 可以分多少个page：2000个（16m/8kb）
         subpages = new PoolSubpage[chunkSize >> pageShifts];
 
         //insert initial run, offset = 0, pages = chunkSize / pageSize
         int pages = chunkSize >> pageShifts;
+        // 其实就是handle的标记，前13位是0，跟着15位是page个数，初始第一个后34位都是0
         long initHandle = (long) pages << SIZE_SHIFT;
-        insertAvailRun(0, pages, initHandle);
+        insertAvailRun(0, pages, initHandle);// 初始化page的queue，放入map中映射 0到initHandle
 
         cachedNioBuffers = new ArrayDeque<ByteBuffer>(8);
     }
@@ -208,7 +213,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
         unpooled = true;
         this.arena = arena;
         this.base = base;
-        this.memory = memory;
+        this.memory = memory;// ByteBuffer对象
         pageSize = 0;
         pageShifts = 0;
         runsAvailMap = null;
@@ -227,15 +232,19 @@ final class PoolChunk<T> implements PoolChunkMetric {
     }
 
     private void insertAvailRun(int runOffset, int pages, long handle) {
+        // 也是根据page大小分段得到序号 -》此时最后是最后1个page段
         int pageIdxFloor = arena.pages2pageIdxFloor(pages);
+
+        // 把handle放入 最后1个page段的queue
         LongPriorityQueue queue = runsAvail[pageIdxFloor];
         queue.offer(handle);
 
+        // 初始化这个handle
         //insert first page of run
-        insertAvailRun0(runOffset, handle);
-        if (pages > 1) {
+        insertAvailRun0(runOffset, handle);// 就放到map，做runOffset到handle的映射
+        if (pages > 1) {// page超过1个
             //insert last page of run
-            insertAvailRun0(lastPage(runOffset, pages), handle);
+            insertAvailRun0(lastPage(runOffset, pages), handle);// 最后1个也映射到handle
         }
     }
 
@@ -251,14 +260,14 @@ final class PoolChunk<T> implements PoolChunkMetric {
     }
 
     private void removeAvailRun(LongPriorityQueue queue, long handle) {
-        queue.remove(handle);
+        queue.remove(handle);// 队列移除
 
-        int runOffset = runOffset(handle);
-        int pages = runPages(handle);
+        int runOffset = runOffset(handle);// 前13位
+        int pages = runPages(handle);// 前13位的开始15位
         //remove first page of run
-        runsAvailMap.remove(runOffset);
+        runsAvailMap.remove(runOffset);// 移除runoffset映射，应该在队列中才会在map
         if (pages > 1) {
-            //remove last page of run
+            //remove last page of run红
             runsAvailMap.remove(lastPage(runOffset, pages));
         }
     }
@@ -294,17 +303,21 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     boolean allocate(PooledByteBuf<T> buf, int reqCapacity, int sizeIdx, PoolThreadCache cache) {
         final long handle;
+        // 申请大小属于small的
         if (sizeIdx <= arena.smallMaxSizeIdx) {
-            // small
+            // small -》在当前chunk申请需求大小对齐后的连续subPage（可能占用多个page）
             handle = allocateSubpage(sizeIdx);
+            // 负数-1就是失败了
             if (handle < 0) {
                 return false;
             }
             assert isSubpage(handle);
         } else {
-            // normal
+            // normal page 处理(small的还会在这个继续生成subpage用于复用)
             // runSize must be multiple of pageSize
             int runSize = arena.sizeIdx2size(sizeIdx);
+
+            // 通用分配
             handle = allocateRun(runSize);
             if (handle < 0) {
                 return false;
@@ -312,68 +325,95 @@ final class PoolChunk<T> implements PoolChunkMetric {
         }
 
         ByteBuffer nioBuffer = cachedNioBuffers != null? cachedNioBuffers.pollLast() : null;
-        initBuf(buf, nioBuffer, handle, reqCapacity, cache);
+        initBuf(buf, nioBuffer, handle, reqCapacity, cache);// 保存到buf
         return true;
     }
 
     private long allocateRun(int runSize) {
-        int pages = runSize >> pageShifts;
-        int pageIdx = arena.pages2pageIdx(pages);
+        int pages = runSize >> pageShifts;// 需要的page个数（page段序号）
+        int pageIdx = arena.pages2pageIdx(pages);// 转成page下标（段）
 
+        // 对队列加锁
         synchronized (runsAvail) {
             //find first queue which has at least one big enough run
             int queueIdx = runFirstBestFit(pageIdx);
+            // -1好像是没成-》大概是整个chunk都没空闲的
             if (queueIdx == -1) {
                 return -1;
             }
+            // 拿到对哪个队列操作
 
+            /**
+             * chunk中队列：代表当前空闲page数
+             * normal在chunk的分配实现：
+             * 1. 根据需求page数，找到大于等于 需求的page数 且有handle（代表当前剩余的结果）的队列
+             * 2. 有则出队取出handle
+             * 3. 扣出需要的page后，挂到对应剩余page数的队列中
+             */
+
+            // 即往对应数量的page队列申请
             //get run with min offset in this queue
             LongPriorityQueue queue = runsAvail[queueIdx];
-            long handle = queue.poll();
+            long handle = queue.poll();// 消费队列
 
             assert handle != LongPriorityQueue.NO_VALUE && !isUsed(handle) : "invalid handle: " + handle;
 
-            removeAvailRun(queue, handle);
+            removeAvailRun(queue, handle);// 从队列、map（runofset到handle）移除
 
             if (handle != -1) {
-                handle = splitLargeRun(handle, pages);
+                // 对当前handle申请实际需要pages -》前面只是找到肯定容纳pages数的handle
+                handle = splitLargeRun(handle, pages);// 处理让别线程可以基于这个chunk申请（如果有剩余）
+                // 返回是 当前offset| 需求的page数|已用完的handle
+                // offset就是本次需要使用的subpage开始下标
             }
 
+            // 空闲扣除本次申请空间总大小byte（实际都是1个个page为单位）
             freeBytes -= runSize(pageShifts, handle);
             return handle;
         }
     }
 
     private int calculateRunSize(int sizeIdx) {
+        // 1个page预留4个做其他用途？最大元素数
         int maxElements = 1 << pageShifts - SizeClasses.LOG2_QUANTUM;
         int runSize = 0;
         int nElements;
 
+        // 元素数量
         final int elemSize = arena.sizeIdx2size(sizeIdx);
 
         //find lowest common multiple of pageSize and elemSize
         do {
-            runSize += pageSize;
-            nElements = runSize / elemSize;
-        } while (nElements < maxElements && runSize != nElements * elemSize);
+            runSize += pageSize;// runSize是page（8kb）的n倍
+            nElements = runSize / elemSize;// 可容纳元素数？
+            // nElements=可容纳元素数？
+            // elemSize == 单个元素大小？
+        } while (nElements < maxElements && runSize != nElements * elemSize);// nElements超过max 或者 runSize是nElements * elemSize 才停
+        // 计算直到到
+        // nElements > maxElements: 当前runSize可容纳元素超过8192-4个，每个元素可占用1b以上
+        // runSize == nElements * elemSize: 元素占用总数等于 page的倍数-》完整page
 
+        // 如果是可容纳元素超过8192-4个，每个元素可占用1b以上 的情况，还原到不超过maxElements数的runSize大小
         while (nElements > maxElements) {
-            runSize -= pageSize;
-            nElements = runSize / elemSize;
+            runSize -= pageSize;// 一直减去page大小，但还是page（8kb）的n倍
+            nElements = runSize / elemSize;//
         }
 
         assert nElements > 0;
         assert runSize <= chunkSize;
         assert runSize >= elemSize;
 
-        return runSize;
+        return runSize;// 肯定是page（8kb）的n倍
     }
 
     private int runFirstBestFit(int pageIdx) {
+        // 当前整个chunk都空闲 -》初始就只有最后1个page 的队列有元素
         if (freeBytes == chunkSize) {
-            return arena.nPSizes - 1;
+            return arena.nPSizes - 1;// 大概就是page段最后一个的下标？优先使用最后1个段
         }
+        // 从对应pageIdx的段 开始看那个段有空闲
         for (int i = pageIdx; i < arena.nPSizes; i++) {
+            // 如果对应page段队列有元素，返回对应段序号
             LongPriorityQueue queue = runsAvail[i];
             if (queue != null && !queue.isEmpty()) {
                 return i;
@@ -385,23 +425,34 @@ final class PoolChunk<T> implements PoolChunkMetric {
     private long splitLargeRun(long handle, int needPages) {
         assert needPages > 0;
 
+        // 当前handle有的page数
         int totalPages = runPages(handle);
         assert needPages <= totalPages;
 
+        // 扣除需要的page后的剩余page数
         int remPages = totalPages - needPages;
 
+        // 剩余page >0
         if (remPages > 0) {
             int runOffset = runOffset(handle);
 
             // keep track of trailing unused pages for later use
+            // 可用offset = runOffset(初始是0) 加上本次需要page数
             int availOffset = runOffset + needPages;
+
+            // 转成handle -》offset |剩余page数| IS_USED(未用完)
             long availRun = toRunHandle(availOffset, remPages, 0);
+
+            // 往runsAvail队列加入 (remPages段队列加入availRun、映射availOffset到availRun-》用于消费获取)
+            // 别的线程可以继续基于这个chunk拿
             insertAvailRun(availOffset, remPages, availRun);
 
+            // 返回1个handle：原runOffset|需要的page|已用完 -》
             // not avail
             return toRunHandle(runOffset, needPages, 1);
         }
 
+        // 剩余全部page已被分配完，更新handle的IS_USED-》即标记全部用完page
         //mark it as used
         handle |= 1L << IS_USED_SHIFT;
         return handle;
@@ -418,24 +469,37 @@ final class PoolChunk<T> implements PoolChunkMetric {
     private long allocateSubpage(int sizeIdx) {
         // Obtain the head of the PoolSubPage pool that is owned by the PoolArena and synchronize on it.
         // This is need as we may add it back and so alter the linked-list structure.
+        // 先找下对应大小的全局PoolSubpage，万一并发被其他线程申前
         PoolSubpage<T> head = arena.findSubpagePoolHead(sizeIdx);
+        // 全局锁PoolSubpage
         synchronized (head) {
             //allocate a new run
-            int runSize = calculateRunSize(sizeIdx);
+            int runSize = calculateRunSize(sizeIdx);// 计算当前大小的small subpage需要多大空间（多少个page-》8kb），即PoolSubpage的申请空间
             //runSize must be multiples of pageSize
+
+            // 申请normal page
             long runHandle = allocateRun(runSize);
+
+            // 分配失败
             if (runHandle < 0) {
                 return -1;
             }
 
+            // 上面的在poolchunk分配成功才能继续
+
+            // subpage在poolchunk的 subpage开始下标——》可能需要多个page
             int runOffset = runOffset(runHandle);
             assert subpages[runOffset] == null;
-            int elemSize = arena.sizeIdx2size(sizeIdx);
+            int elemSize = arena.sizeIdx2size(sizeIdx);// 需要的对齐后的大小
 
+            // 真正创建PoolSubpage加入到area的链表
             PoolSubpage<T> subpage = new PoolSubpage<T>(head, this, pageShifts, runOffset,
                                runSize(pageShifts, runHandle), elemSize);
 
+            // 在poolchunk中记录subpage
             subpages[runOffset] = subpage;
+            // 上面是新增初始化subpages
+            // 这里是使用subpages：执行在subpages分配处理 -》申请大小就是elemSize，即对齐后的需求大小
             return subpage.allocate();
         }
     }
@@ -569,7 +633,10 @@ final class PoolChunk<T> implements PoolChunkMetric {
         assert s.doNotDestroy;
         assert reqCapacity <= s.elemSize;
 
+        // 得到具体下标（ chunk subpage数组的offset + bitmapIdx段内部对应开始）
         int offset = (runOffset << pageShifts) + bitmapIdx * s.elemSize;
+
+        // 把这些 记录更新到buf中
         buf.init(this, nioBuffer, handle, offset, reqCapacity, s.elemSize, threadCache);
     }
 
@@ -614,10 +681,13 @@ final class PoolChunk<T> implements PoolChunkMetric {
     }
 
     static int runSize(int pageShifts, long handle) {
+        // runPages：27位page数
+        //  << pageShifts：总大小
         return runPages(handle) << pageShifts;
     }
 
     static int runPages(long handle) {
+        // 右移34位，的15位（page）
         return (int) (handle >> SIZE_SHIFT & 0x7fff);
     }
 

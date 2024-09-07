@@ -78,7 +78,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      */
     protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
         /**
-         * pipeline、unsafe
+         * netty的pipeline、unsafe
          */
         super(parent);
         this.ch = ch;
@@ -251,6 +251,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                 boolean wasActive = isActive();
                 // 执行java原生nio api绑定端口
                 if (doConnect(remoteAddress, localAddress)) {
+                    // 成功会执行触发ChannelActive
                     fulfillConnectPromise(promise, wasActive);
                 } else {
                     connectPromise = promise;
@@ -306,6 +307,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
             // Regardless if the connection attempt was cancelled, channelActive() event should be triggered,
             // because what happened is what happened.
+            // 触发ChannelActive
             if (!wasActive && active) {
                 pipeline().fireChannelActive();
             }
@@ -336,7 +338,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
             try {
                 boolean wasActive = isActive();
-                doFinishConnect();
+                doFinishConnect();// 正常验证,nio的啥都没干
+
+                // 执行pipeline的相关方法
                 fulfillConnectPromise(connectPromise, wasActive);
             } catch (Throwable t) {
                 fulfillConnectPromise(connectPromise, annotateConnectException(t, requestedRemoteAddress));
@@ -383,11 +387,11 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         for (;;) {
             try {
                 /**
-				 * （1）把当前channel（的java channel）往Eventloop的(java) selector中注册所有监听事件
+				 * 往eventloop的selector中注册 当前channel的所有监听事件
                  * 1. ServerSocketChannel监听建立连接事件
                  * 2. 后面的SocketChannel 监听可读可写事件
                  *
-                 * （2）并且把当前的（netty）channel对象 绑定到selectionKey，用于处理事件时拿回channel对象
+                 * 这里selectionKey的att已绑定当前channel
                  */
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
@@ -422,8 +426,8 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         readPending = true;
 
         final int interestOps = selectionKey.interestOps();
-        if ((interestOps & readInterestOp) == 0) {
-            selectionKey.interestOps(interestOps | readInterestOp);
+        if ((interestOps & readInterestOp) == 0) {// readInterestOp未设置到
+            selectionKey.interestOps(interestOps | readInterestOp);// 更新加入readInterestOp的
         }
     }
 

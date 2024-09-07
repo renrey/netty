@@ -82,6 +82,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
     protected void encode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
         ByteBuf buf = null;
         // 处理header相关编码
+        // header 相关
         if (msg instanceof HttpMessage) {
             if (state != ST_INIT) {
                 throw new IllegalStateException("unexpected message type: " + StringUtil.simpleClassName(msg)
@@ -91,6 +92,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             @SuppressWarnings({ "unchecked", "CastConflictsWithInstanceof" })
             H m = (H) msg;
             // 创建ByteBuf
+            // 使用分配器，申请空间 -》256b
             buf = ctx.alloc().buffer((int) headersEncodedSizeAccumulator);
             // Encode the message.
             /**
@@ -118,6 +120,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
         // See https://github.com/netty/netty/issues/2983 for more information.
         if (msg instanceof ByteBuf) {
             final ByteBuf potentialEmptyBuf = (ByteBuf) msg;
+            // 空buf，直接加入out
             if (!potentialEmptyBuf.isReadable()) {
                 out.add(potentialEmptyBuf.retain());
                 return;
@@ -125,6 +128,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
         }
 
         // 处理内容的编码
+        // 具体内容-》文本内容、流、文件
         if (msg instanceof HttpContent || msg instanceof ByteBuf || msg instanceof FileRegion) {
             switch (state) {
                 // 没有写header，所以报错
@@ -180,7 +184,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
                     // header的ByteBuf加入
                     if (buf != null) {
                         // We allocated a buffer so add it now.
-                        out.add(buf);
+                        out.add(buf);// 加入到CodecOutputList
                     }
                     // chunked内容处理，只是申请对应的ByteBuf
                     encodeChunkedContent(ctx, msg, contentLength(msg), out);
@@ -195,6 +199,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             }
         } else if (buf != null) {
             // 直接把header的ByteBuf返回
+            // 大概就是写入header
             out.add(buf);
         }
     }

@@ -16,16 +16,8 @@
 
 package io.netty.bootstrap;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPromise;
-import io.netty.channel.DefaultChannelPromise;
-import io.netty.channel.EventLoop;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.ReflectiveChannelFactory;
+import io.netty.channel.*;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.GlobalEventExecutor;
@@ -270,7 +262,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     private ChannelFuture doBind(final SocketAddress localAddress) {
-        // 1。 创建socketchannel
+        // 1. 创建并初始化 (配置类的)channel -> 创建java nio channel（申请打开fd）、netty pipeline初始化
+        // 1。 创建socketchannel，
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
         if (regFuture.cause() != null) {
@@ -310,16 +303,23 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     final ChannelFuture initAndRegister() {
         Channel channel = null;
         try {
+            // 1. 通过工厂创建channel -》boostrap指定channel
             /**
              * 1. 通过反射创建channel，一般为NioServerSocketChannel
              * 创建一个channel
              * @see ReflectiveChannelFactory#newChannel()
+             *
+             * 基于java nio channel封装netty channel -》加多了netty的ChannelPipeline
+             * 客户端
+             * @see io.netty.channel.socket.nio.NioSocketChannel#NioSocketChannel()
+             * 服务端
+             * @see NioServerSocketChannel#NioServerSocketChannel()
              */
             channel = channelFactory.newChannel();
-            /**
-             * 初始化channel的pipeline等设置
-             * 有serverchannel、socketchannel的
-             */
+            // 2. 初始化channel
+            // 设置一些配置option、attribute
+            // 往第1级channel的pipeline添加handler
+            // Boostrap: 直接配置的handler  ServerBoostrap: 添加初始化子worker pipeline（Boostrap的handler -> ServerBootstrapAcceptor）的初始hanlder
             init(channel);
         } catch (Throwable t) {
             if (channel != null) {
@@ -333,9 +333,11 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
 
         /**
-         * 2. 往EventLoopGroup注册这个channel
-         * NioEventLoopGroup
-         *  但实际register方法是MultithreadEventLoopGroup
+         * 2. 往 设置的group（EventLoopGroup）注册这个channel
+         *
+         * NioEventLoopGroup：register方法是MultithreadEventLoopGroup，多线程-》轮询选择线程，把这个channel注册进去
+         *
+         * 注册就是让eventloop的selector监听这个channel的事件，并触发pipeline handler的一些定义方法（ChannelRegistered、ChannelActive）
          */
         ChannelFuture regFuture = config().group().register(channel);
         if (regFuture.cause() != null) {
@@ -375,6 +377,11 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             public void run() {
                 if (regFuture.isSuccess()) {
                     // netty channel绑定端口！！！
+                    // 执行pipeline的bind （但是从TailContext开始执行向前执行 -》如果想重定义bind的话可以在中间拦截，从HeadContext就不行了）
+                    /**
+                     * 正常的触发最终bind（未被拦截重新）
+                     * @see DefaultChannelPipeline.HeadContext#bind(ChannelHandlerContext, SocketAddress, ChannelPromise)
+                     */
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     promise.setFailure(regFuture.cause());

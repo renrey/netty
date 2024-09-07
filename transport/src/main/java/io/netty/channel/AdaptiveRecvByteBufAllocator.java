@@ -42,20 +42,22 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     private static final int INDEX_INCREMENT = 4;
     private static final int INDEX_DECREMENT = 1;
 
-    private static final int[] SIZE_TABLE;
+    private static final int[] SIZE_TABLE;// 全局的
 
     static {
         List<Integer> sizeTable = new ArrayList<Integer>();
+        // 32个（16-512）
         for (int i = 16; i < 512; i += 16) {
             sizeTable.add(i);
         }
 
+        // 再翻倍 （512-16）
         // Suppress a warning since i becomes negative when an integer overflow happens
         for (int i = 512; i > 0; i <<= 1) { // lgtm[java/constant-comparison]
             sizeTable.add(i);
         }
 
-        SIZE_TABLE = new int[sizeTable.size()];
+        SIZE_TABLE = new int[sizeTable.size()];// 64个
         for (int i = 0; i < SIZE_TABLE.length; i ++) {
             SIZE_TABLE[i] = sizeTable.get(i);
         }
@@ -68,7 +70,9 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     public static final AdaptiveRecvByteBufAllocator DEFAULT = new AdaptiveRecvByteBufAllocator();
 
     private static int getSizeTableIndex(final int size) {
+        // SIZE_TABLE.length=64
         for (int low = 0, high = SIZE_TABLE.length - 1;;) {
+            // 二分查找
             if (high < low) {
                 return low;
             }
@@ -102,8 +106,8 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             this.minIndex = minIndex;
             this.maxIndex = maxIndex;
 
-            index = getSizeTableIndex(initial);
-            nextReceiveBufferSize = SIZE_TABLE[index];
+            index = getSizeTableIndex(initial);// initial=2048
+            nextReceiveBufferSize = SIZE_TABLE[index];// 那应该就是最后1个
         }
 
         @Override
@@ -112,6 +116,8 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             // This helps adjust more quickly when large amounts of data is pending and can avoid going back to
             // the selector to check for more data. Going back to the selector can add significant latency for large
             // data transfers.
+
+            // 已读去目标大小内容
             if (bytes == attemptedBytesRead()) {
                 record(bytes);
             }
@@ -120,19 +126,23 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
 
         @Override
         public int guess() {
+            // 当前使用的SIZE_TABLE index指定的大小 （动态）
             return nextReceiveBufferSize;
         }
 
         private void record(int actualReadBytes) {
+            // 读取大小 <= SIZE_TABLE的前1位大小 （动态判断）
             if (actualReadBytes <= SIZE_TABLE[max(0, index - INDEX_DECREMENT)]) {
-                if (decreaseNow) {
-                    index = max(index - INDEX_DECREMENT, minIndex);
-                    nextReceiveBufferSize = SIZE_TABLE[index];
+                if (decreaseNow) {// 上次标记了，这次执行
+                    // 更新成前1位大小（但不能小于最小的）
+                    index = max(index - INDEX_DECREMENT, minIndex);// SIZE_TABLE下标前移1位
+                    nextReceiveBufferSize = SIZE_TABLE[index];// 记录大小更新前1位的大小
                     decreaseNow = false;
                 } else {
-                    decreaseNow = true;
+                    decreaseNow = true;// 标记下一次执行
                 }
-            } else if (actualReadBytes >= nextReceiveBufferSize) {
+            } else if (actualReadBytes >= nextReceiveBufferSize) {// 比前1个大，且超过当前使用的大小
+                // SIZE_TABLE下标 后移1位
                 index = min(index + INDEX_INCREMENT, maxIndex);
                 nextReceiveBufferSize = SIZE_TABLE[index];
                 decreaseNow = false;
@@ -145,9 +155,9 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
         }
     }
 
-    private final int minIndex;
-    private final int maxIndex;
-    private final int initial;
+    private final int minIndex;//64
+    private final int maxIndex;//65536
+    private final int initial;// 2048
 
     /**
      * Creates a new predictor with the default parameters.  With the default

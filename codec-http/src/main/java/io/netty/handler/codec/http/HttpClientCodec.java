@@ -293,7 +293,7 @@ public final class HttpClientCodec extends CombinedChannelDuplexHandler<HttpResp
                                 // Proxy connection established - Parse HTTP only if configured by
                                 // parseHttpAfterConnectRequest, else pass through.
                                 if (!parseHttpAfterConnectRequest) {
-                                    done = true;
+                                    done = true;// 完成
                                     queue.clear();
                                 }
                                 return true;

@@ -76,6 +76,7 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
 
     private int nonVolatileRawCnt(T instance) {
         // TODO: Once we compile against later versions of Java we can replace the Unsafe usage here by varhandles.
+        // 获取对象的绑定属性（refCnt）， AbstractReferenceCounted、AbstractReferenceCountedByteBuf 的refCnt
         final long offset = unsafeOffset();
         return offset != -1 ? PlatformDependent.getInt(instance, offset) : updater().get(instance);
     }
@@ -133,7 +134,11 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
     }
 
     public final boolean release(T instance) {
-        int rawCnt = nonVolatileRawCnt(instance);
+        int rawCnt = nonVolatileRawCnt(instance);// 获取refCnt属性（AbstractReferenceCounted、AbstractReferenceCountedByteBuf ）
+        // refCnt==2（初始值），释放-> refCnt=1
+        // 不是初始值-》nonFinalRelease0：
+        //   1. toLiveRealRefCnt--refCnt不是末尾=1（是就异常），进行refCnt右移1位 得到realCnt 真正引用次数？
+        //   2.  如果realCnt > 1 ，refCnt= refCnt - (decrement << 1) -》即realCnt-1，只是作为refCnt格式
         return rawCnt == 2 ? tryFinalRelease0(instance, 2) || retryRelease0(instance, 1)
                 : nonFinalRelease0(instance, 1, rawCnt, toLiveRealRefCnt(rawCnt, 1));
     }
@@ -146,6 +151,7 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
     }
 
     private boolean tryFinalRelease0(T instance, int expectRawCnt) {
+        // 对象中对应属性更新=1
         return updater().compareAndSet(instance, expectRawCnt, 1); // any odd number will work
     }
 

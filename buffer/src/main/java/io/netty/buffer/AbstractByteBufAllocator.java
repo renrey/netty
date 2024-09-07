@@ -39,8 +39,10 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
     protected static ByteBuf toLeakAwareBuffer(ByteBuf buf) {
         ResourceLeakTracker<ByteBuf> leak;
         switch (ResourceLeakDetector.getLevel()) {
+            // 默认simple
             case SIMPLE:
-                leak = AbstractByteBuf.leakDetector.track(buf);
+                // 大概申请了1个
+                leak = AbstractByteBuf.leakDetector.track(buf);// 追踪
                 if (leak != null) {
                     buf = new SimpleLeakAwareByteBuf(buf, leak);
                 }
@@ -135,9 +137,12 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
 
     @Override
     public ByteBuf ioBuffer(int initialCapacity) {
+        // 默认直接内存
         if (PlatformDependent.hasUnsafe() || isDirectBufferPooled()) {
+            // 一般都这里
             return directBuffer(initialCapacity);
         }
+        // 没unsafe类且没使用直接内存
         return heapBuffer(initialCapacity);
     }
 
@@ -184,6 +189,10 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
             return emptyBuf;
         }
         validate(initialCapacity, maxCapacity);
+        // 直接内存
+        /**
+         * @see PooledByteBufAllocator#newDirectBuffer(int, int)
+         */
         return newDirectBuffer(initialCapacity, maxCapacity);
     }
 

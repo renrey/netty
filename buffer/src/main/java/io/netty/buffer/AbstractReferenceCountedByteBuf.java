@@ -43,7 +43,7 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
 
     // Value might not equal "real" reference count, all access should be via the updater
     @SuppressWarnings("unused")
-    private volatile int refCnt = updater.initialValue();
+    private volatile int refCnt = updater.initialValue();// 初始是2
 
     protected AbstractReferenceCountedByteBuf(int maxCapacity) {
         super(maxCapacity);
@@ -97,6 +97,8 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
 
     @Override
     public boolean release() {
+        //1.  计数-1：全局updater（其实是个执行器函数）做 释放当前对象-》refCnt尝试减1or变成1（无引用）
+        // 2. 如果没引用，释放内存
         return handleRelease(updater.release(this));
     }
 
@@ -107,6 +109,12 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
 
     private boolean handleRelease(boolean result) {
         if (result) {
+            /**
+             * 池化：放回chunk
+             * @see PooledByteBuf#deallocate()
+             * 非池化：直接释放
+             * @see UnpooledDirectByteBuf#deallocate()
+             */
             deallocate();
         }
         return result;

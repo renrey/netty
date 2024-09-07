@@ -140,12 +140,14 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 return;
             }
             final ChannelPipeline pipeline = pipeline();
-            // 当前ByteBufAllocator, ByteBuf分配器
+            // 当前ByteBufAllocator, ByteBuf分配器 -》给从网络读取的字节数组，申请内存空间
             /**
-             * 默认PooledByteBufAllocator或者UnpooledByteBufAllocator
+             * 默认PooledByteBufAllocator（偏向底层申请内存）
              */
             final ByteBufAllocator allocator = config.getAllocator();
-            // AdaptiveRecvByteBufAllocator
+
+            // 拿到当前channel的recvHandle（一直复用，无则通过RecvByteBufAllocator申请）
+            // AdaptiveRecvByteBufAllocator（偏向策略？） -》io.netty.channel.AdaptiveRecvByteBufAllocator.HandleImpl.HandleImpl
             final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
             // 重置可读空间
             allocHandle.reset(config);
@@ -154,8 +156,11 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             boolean close = false;
             try {
                 do {
+                    // 1. 申请空间 （netty的bytebuf）
+                    // 正常类型（直接内存且池化）：SimpleLeakAwareByteBuf（防止泄漏） -》PooledUnsafeDirectByteBuf（真正使用的）
                     byteBuf = allocHandle.allocate(allocator);
-                    // doReadBytes 读取报文，字节数组写入ByteBuf
+
+                    // 2. doReadBytes 读取报文，字节数组写入ByteBuf
                     // allocHandle更新本次读取长度、剩余容量
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
                     // 没读取到数据

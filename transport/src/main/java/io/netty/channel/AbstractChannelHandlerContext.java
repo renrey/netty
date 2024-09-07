@@ -59,12 +59,19 @@ import static io.netty.channel.ChannelHandlerMask.MASK_USER_EVENT_TRIGGERED;
 import static io.netty.channel.ChannelHandlerMask.MASK_WRITE;
 import static io.netty.channel.ChannelHandlerMask.mask;
 
+// 1个channel的1个handler下的context
+// 作用：
+// 1. 对应handler的对应生命周期(被动类，read)方法（invokerXXX）
+// 2. 提供在重写handler时的网络操作方法，如write
 abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, ResourceLeakHint {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractChannelHandlerContext.class);
+
+    // 双向链表 -》也是按照handler顺序，而且需要从中间进行操作
     volatile AbstractChannelHandlerContext next;
     volatile AbstractChannelHandlerContext prev;
 
+    // 负责更新handlerState
     private static final AtomicIntegerFieldUpdater<AbstractChannelHandlerContext> HANDLER_STATE_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(AbstractChannelHandlerContext.class, "handlerState");
 
@@ -105,8 +112,9 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     AbstractChannelHandlerContext(DefaultChannelPipeline pipeline, EventExecutor executor,
                                   String name, Class<? extends ChannelHandler> handlerClass) {
         this.name = ObjectUtil.checkNotNull(name, "name");
-        this.pipeline = pipeline;
+        this.pipeline = pipeline;// 所属pipeline与执行器
         this.executor = executor;
+        // 本地线程map放入key= handler class，v=mask -》大概后都是遍历这个map
         this.executionMask = mask(handlerClass);
         // Its ordered if its driven by the EventLoop or the given Executor is an instanceof OrderedEventExecutor.
         ordered = executor == null || executor instanceof OrderedEventExecutor;
@@ -144,12 +152,15 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelHandlerContext fireChannelRegistered() {
+        // 1. findContextInbound: （从当前ctx开始）遍历ctx 链表, 根据mask判断，找到第一个处理registered方法的hanlder ctx
+        // 2.  invokeChannelRegistered: 执行找到的ctx对应方法
         invokeChannelRegistered(findContextInbound(MASK_CHANNEL_REGISTERED));
         return this;
     }
 
     static void invokeChannelRegistered(final AbstractChannelHandlerContext next) {
         EventExecutor executor = next.executor();
+        // 执行强制在EventLoop线程上执行
         if (executor.inEventLoop()) {
             next.invokeChannelRegistered();
         } else {
@@ -163,13 +174,18 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     }
 
     private void invokeChannelRegistered() {
-        if (invokeHandler()) {
+        if (invokeHandler()) {// 已注册到el（selector），并执行了handlerAdded方法-》ctx已完成添加到pipeline
             try {
+                // 已经加入pipeline：执行
+                // 3 种类型ctx的handler ：自定的DefaultChannelHandlerContext-》绑定的handler，默认内置的HeadContext、TailContext->自己
+
+                // 使用自己作为参数：从当前ctx开始遍历链表，找到第一个有注册处理的hanlder，ctx执行
                 ((ChannelInboundHandler) handler()).channelRegistered(this);
             } catch (Throwable t) {
                 invokeExceptionCaught(t);
             }
         } else {
+            // 直接找到第一个有注册处理的hanlder，ctx执行
             fireChannelRegistered();
         }
     }
@@ -361,8 +377,11 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     }
 
     static void invokeChannelRead(final AbstractChannelHandlerContext next, Object msg) {
+        // 注意：msg是ReferenceCounted，会在下一个生成了对象m
         final Object m = next.pipeline.touch(ObjectUtil.checkNotNull(msg, "msg"), next);
         EventExecutor executor = next.executor();
+
+        // 调用方法都是用m做参数
         if (executor.inEventLoop()) {
             next.invokeChannelRead(m);
         } else {
@@ -379,10 +398,8 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         if (invokeHandler()) {
             try {
                 /**
-				 * 建立连接
+				 * server socket channel 处理建立连接时调用：用于对当前客户端的连接的 socket channel（已创建了）进行初始化，并注册交给子group
                  * @see ServerBootstrap.ServerBootstrapAcceptor#channelRead(io.netty.channel.ChannelHandlerContext, java.lang.Object)
-                 * 通信：
-                 * 调用初始的childHandler
                  */
                 ((ChannelInboundHandler) handler()).channelRead(this, msg);
             } catch (Throwable t) {
@@ -494,7 +511,8 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         }
 
         /**
-         * 第一次进来的是TailContext，next就是HeadContext
+         * outbuound 就是ctx链表向前遍历，输出数据跟数据进来反向
+         * 从tail （tail后不关事）到向找, 一般就是HeadContext
          *
          */
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_BIND);
@@ -516,6 +534,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         if (invokeHandler()) {
             try {
                 /**
+                 * 实际
                  * @see DefaultChannelPipeline.HeadContext#bind(io.netty.channel.ChannelHandlerContext, java.net.SocketAddress, io.netty.channel.ChannelPromise)
                  */
                 ((ChannelOutboundHandler) handler()).bind(this, localAddress, promise);
@@ -803,6 +822,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         }
     }
 
+    // 在ctx执行write：handler中手动调用
     private void write(Object msg, boolean flush, ChannelPromise promise) {
         ObjectUtil.checkNotNull(msg, "msg");
         try {
@@ -817,13 +837,21 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         }
 
         // 实际找前面的handler
+        // 找到有后面的节点中第1个，定义了write、flush方法handler的ctx
         final AbstractChannelHandlerContext next = findContextOutbound(flush ?
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
+        // 创建ReferenceCounted
         final Object m = pipeline.touch(msg, next);
         // 默认是当前channel的Eventloop，除非add handler的时候指定了其他group
         EventExecutor executor = next.executor();
         // 当前执行线程是否在channel的Eventloop线程
         // 正常都是进来，马上执行（同步堵塞）next的（前面handler）的write、flush方法
+
+        // 给这个ctx（handler）执行
+        /**
+         * 未重写加入下，默认都是head
+         * @see
+         */
         if (executor.inEventLoop()) {
             if (flush) {
                 next.invokeWriteAndFlush(m, promise);
@@ -919,15 +947,18 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         return false;
     }
 
+    // Inbound： 向后内部
     private AbstractChannelHandlerContext findContextInbound(int mask) {
         AbstractChannelHandlerContext ctx = this;
         EventExecutor currentExecutor = executor();
         do {
+            // 遍历ctx链
             ctx = ctx.next;
-        } while (skipContext(ctx, currentExecutor, mask, MASK_ONLY_INBOUND));
+        } while (skipContext(ctx, currentExecutor, mask, MASK_ONLY_INBOUND));// 看当前ctx handler 类是否包含目标，没有直到找到为止
         return ctx;
     }
 
+    // Outbound: 向前向外
     private AbstractChannelHandlerContext findContextOutbound(int mask) {
         AbstractChannelHandlerContext ctx = this;
         EventExecutor currentExecutor = executor();
@@ -966,21 +997,25 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             // Ensure we never update when the handlerState is REMOVE_COMPLETE already.
             // oldState is usually ADD_PENDING but can also be REMOVE_COMPLETE when an EventExecutor is used that is not
             // exposing ordering guarantees.
-            if (HANDLER_STATE_UPDATER.compareAndSet(this, oldState, ADD_COMPLETE)) {
+            if (HANDLER_STATE_UPDATER.compareAndSet(this, oldState, ADD_COMPLETE)) {// 更新成新增完成
                 return true;
             }
         }
     }
 
     final void setAddPending() {
-        boolean updated = HANDLER_STATE_UPDATER.compareAndSet(this, INIT, ADD_PENDING);
+        boolean updated = HANDLER_STATE_UPDATER.compareAndSet(this, INIT, ADD_PENDING);// 正在添加
         assert updated; // This should always be true as it MUST be called before setAddComplete() or setRemoved().
     }
 
     final void callHandlerAdded() throws Exception {
         // We must call setAddComplete before calling handlerAdded. Otherwise if the handlerAdded method generates
         // any pipeline events ctx.handler() will miss them because the state will not allow it.
+
+        // 把这个channel-handler 的context 完成
         if (setAddComplete()) {
+            // 执行handlerAdded
+            // 例如ChannelInitializer执行initChannel
             handler().handlerAdded(this);
         }
     }

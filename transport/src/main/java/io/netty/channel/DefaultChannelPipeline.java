@@ -61,7 +61,17 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     private static final AtomicReferenceFieldUpdater<DefaultChannelPipeline, MessageSizeEstimator.Handle> ESTIMATOR =
             AtomicReferenceFieldUpdater.newUpdater(
                     DefaultChannelPipeline.class, MessageSizeEstimator.Handle.class, "estimatorHandle");
+    // context链，但是这里2个指针不会更新
+    // 实际是2段
+    // 从head开始的：主要底层二进制发送
+    // 从tail开始：一般还是操作java对象
+    /**
+     * @see HeadContext
+     */
     final AbstractChannelHandlerContext head;
+    /**
+     * @see TailContext
+     */
     final AbstractChannelHandlerContext tail;
 
     private final Channel channel;
@@ -95,6 +105,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         voidPromise =  new VoidChannelPromise(channel, true);
 
         // 链表头尾把自己作为dummy node
+        // contenxt链
+        // 默认事件链 上加入当前对象的相关操作
         tail = new TailContext(this);
         head = new HeadContext(this);
 
@@ -204,33 +216,44 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     @Override
     public final ChannelPipeline addLast(EventExecutorGroup group, String name, ChannelHandler handler) {
         final AbstractChannelHandlerContext newCtx;
+        // 锁当前pipeline？有多线程问题？-》可能被修改删除
         synchronized (this) {
             checkMultiplicity(handler);
             // 新建一个AbstractChannelHandlerContext， 现在已有HeadContext、TailContext
+            // 得到新的DefaultChannelHandlerContext（链表节点）
             newCtx = newContext(group, filterName(name, handler), handler);
-            // 加入AbstractChannelHandlerContext的链表中
+            // 加入AbstractChannelHandlerContext的链表中 -》注意：head、tail指针不会更新
             addLast0(newCtx);
 
             // If the registered is false it means that the channel was not registered on an eventLoop yet.
             // In this case we add the context to the pipeline and add a task that will call
             // ChannelHandler.handlerAdded(...) once the channel is registered.
+            // 当前的channel未注册到el上
             if (!registered) {
-                newCtx.setAddPending();
+                newCtx.setAddPending();// 状态准备新增
+                // 延迟执行HandlerAdded
                 callHandlerCallbackLater(newCtx, true);
                 return this;
             }
 
+            // 已注册到el，（提交el线程）马上执行HandlerAdded
             EventExecutor executor = newCtx.executor();
             if (!executor.inEventLoop()) {
                 callHandlerAddedInEventLoop(newCtx, executor);
                 return this;
             }
         }
+        // 已注册到el，（当前el线程）马上执行HandlerAddedHandlerAdded( 当前handler)
         callHandlerAdded0(newCtx);
         return this;
+        // 过程：
+        // 1. 新增本channel下当前channel的ctx链表对象，并标记mask（handler有什么方法）放入到本地线程map（弱引用32个）
+        // 2. ctx入链表
+        // 3. 执行handlerAdded方法
     }
 
     private void addLast0(AbstractChannelHandlerContext newCtx) {
+        // 注意：tail指针不变化
         AbstractChannelHandlerContext prev = tail.prev;
         newCtx.prev = prev;
         newCtx.next = tail;
@@ -649,10 +672,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     final void invokeHandlerAddedIfNeeded() {
         assert channel.eventLoop().inEventLoop();
+        // 还是注册阶段
         if (firstRegistration) {
             firstRegistration = false;
             // We are now registered to the EventLoop. It's time to call the callbacks for the ChannelHandlers,
             // that were added before the registration was done.
+
+            // 执行当前handler ctx链表下的所以handlerAdded方法（pipeline addLast时都被延后了）
             callHandlerAddedForAllHandlers();
         }
     }
@@ -818,6 +844,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelPipeline fireChannelRegistered() {
+        // 从事件链头开始执行
         AbstractChannelHandlerContext.invokeChannelRegistered(head);
         return this;
     }
@@ -896,6 +923,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
+    // fire类被动（对面发送请求）的都从head开始，所以
     @Override
     public final ChannelPipeline fireChannelActive() {
         AbstractChannelHandlerContext.invokeChannelActive(head);
@@ -920,8 +948,10 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return this;
     }
 
+    // 完成read后
     @Override
     public final ChannelPipeline fireChannelRead(Object msg) {
+        // 看参数就知道，msg就是read完后的结果对象
         AbstractChannelHandlerContext.invokeChannelRead(head, msg);
         return this;
     }
@@ -937,6 +967,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         AbstractChannelHandlerContext.invokeChannelWritabilityChanged(head);
         return this;
     }
+
+    // 都是执行tail开始的
+    // start -- 主动类网络操作（服务端主动），都是从tail
 
     @Override
     public final ChannelFuture bind(SocketAddress localAddress) {
@@ -1032,6 +1065,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return tail.writeAndFlush(msg);
     }
 
+    // end -- 基础网络操作
+
     @Override
     public final ChannelPromise newPromise() {
         return new DefaultChannelPromise(channel);
@@ -1117,6 +1152,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         // This must happen outside of the synchronized(...) block as otherwise handlerAdded(...) may be called while
         // holding the lock and so produce a deadlock if handlerAdded(...) will try to add another handler from outside
         // the EventLoop.
+
+        // 把其他handler的add方法也执行了（都延后了）
         PendingHandlerCallback task = pendingHandlerCallbackHead;
         while (task != null) {
             task.execute();
@@ -1248,6 +1285,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
+    // 都是末尾的，一些异常导致终结的
     // A special catch-all handler that handles both bytes and messages.
     final class TailContext extends AbstractChannelHandlerContext implements ChannelInboundHandler {
 
@@ -1310,7 +1348,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 一般默认的主要落在这
+     * 一般默认的主要落在这，作为主入口，一些正向处理
      */
     final class HeadContext extends AbstractChannelHandlerContext
             implements ChannelOutboundHandler, ChannelInboundHandler {
@@ -1338,6 +1376,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             // NOOP
         }
 
+        // 网络相关的操作都是这个节点执行的，并且使用unsafe ——》这些一般比较少自定义
+        // start ：网络相关的基础方法
         @Override
         public void bind(
                 ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise) {
@@ -1350,6 +1390,10 @@ public class DefaultChannelPipeline implements ChannelPipeline {
                 ChannelHandlerContext ctx,
                 SocketAddress remoteAddress, SocketAddress localAddress,
                 ChannelPromise promise) {
+            // 使用unsafe连接
+            /**
+             * @See io.netty.channel.nio.AbstractNioChannel.AbstractNioUnsafe#connect(java.net.SocketAddress, java.net.SocketAddress, io.netty.channel.ChannelPromise)
+             */
             unsafe.connect(remoteAddress, localAddress, promise);
         }
 
@@ -1383,6 +1427,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             unsafe.flush();
         }
 
+        // end：网络相关的基础方法
+
+        // start：调用ctx链上第一个这个方法 -> 就是常规使用比较多的
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             ctx.fireExceptionCaught(cause);
@@ -1390,7 +1437,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
         @Override
         public void channelRegistered(ChannelHandlerContext ctx) {
-            invokeHandlerAddedIfNeeded();
+            invokeHandlerAddedIfNeeded();// 确保在注册时执行handlerAdded方法
+
+            // 这个ctx一般就是当前head自己吧？因为里面要遍历ctx 链表找第一个有注册方法的，这里传参数，可动态从ctx参数开始（但一般都是内置heade）
             ctx.fireChannelRegistered();
         }
 
@@ -1427,6 +1476,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
             readIfIsAutoRead();
         }
+        // end：调用ctx链上第一个这个方法
+
 
         private void readIfIsAutoRead() {
             if (channel.config().isAutoRead()) {

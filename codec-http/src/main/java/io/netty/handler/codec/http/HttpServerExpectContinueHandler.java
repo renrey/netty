@@ -72,6 +72,7 @@ public class HttpServerExpectContinueHandler extends ChannelInboundHandlerAdapte
         return EXPECTATION_FAILED.retainedDuplicate();
     }
 
+    // 就是重写read消息（上一个codec的反序列化）
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof HttpRequest) {
@@ -84,14 +85,17 @@ public class HttpServerExpectContinueHandler extends ChannelInboundHandlerAdapte
                     // the expectation failed so we refuse the request.
                     HttpResponse rejection = rejectResponse(req);
                     ReferenceCountUtil.release(msg);
+                    // 强制发送，添加个回调关闭连接的回调
                     ctx.writeAndFlush(rejection).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                     return;
                 }
 
+                // 强制发送空响应，添加个回调关闭连接的回调
                 ctx.writeAndFlush(accept).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 req.headers().remove(HttpHeaderNames.EXPECT);
             }
         }
+        // 调用下一个的channelRead
         super.channelRead(ctx, msg);
     }
 }

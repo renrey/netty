@@ -72,6 +72,7 @@ public class DefaultChannelConfig implements ChannelConfig {
     private volatile boolean pinEventExecutor = true;
 
     public DefaultChannelConfig(Channel channel) {
+        // 默认使用AdaptiveRecvByteBufAllocator
         this(channel, new AdaptiveRecvByteBufAllocator());
     }
 
@@ -305,6 +306,7 @@ public class DefaultChannelConfig implements ChannelConfig {
     @SuppressWarnings("unchecked")
     @Override
     public <T extends RecvByteBufAllocator> T getRecvByteBufAllocator() {
+        // 默认AdaptiveRecvByteBufAllocator
         return (T) rcvBufAllocator;
     }
 

@@ -72,7 +72,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     protected AbstractChannel(Channel parent) {
         this.parent = parent;
         id = newId();
-        unsafe = newUnsafe();
+        unsafe = newUnsafe();// SocketChannel：使用NioSocketChannelUnsafe  ServerSocketChannel：NioMessageUnsafe
         // 创建pipeline
         pipeline = newChannelPipeline();
     }
@@ -431,6 +431,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     protected abstract class AbstractUnsafe implements Unsafe {
 
+        // 发生输出的缓冲区
         private volatile ChannelOutboundBuffer outboundBuffer = new ChannelOutboundBuffer(AbstractChannel.this);
         private RecvByteBufAllocator.Handle recvHandle;
         private boolean inFlush0;
@@ -443,7 +444,10 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
         @Override
         public RecvByteBufAllocator.Handle recvBufAllocHandle() {
+            // 就是一直复用recvHandle
             if (recvHandle == null) {
+                 // 为当前channel申请1个recvHandle
+                // io.netty.channel.AdaptiveRecvByteBufAllocator.HandleImpl.HandleImpl
                 recvHandle = config().getRecvByteBufAllocator().newHandle();
             }
             return recvHandle;
@@ -480,11 +484,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             AbstractChannel.this.eventLoop = eventLoop;
 
             if (eventLoop.inEventLoop()) {
+                // EventLoop线程执行的注册-》即子worker 注册？
                 register0(promise);
-           // 初始化进入这里（当前线程跟EventLoop不是同一线程）
             } else {
+                // 初始化进入这里（当前线程跟EventLoop不是同一线程-》外部使用api）
                 try {
-
+                    // 等于注册还是要让EventLoop线程执行
                     /**
                      * 1. 启动eventLoop线程
                      * 2. 当前channel往eventloop的selector中注册所有监听事件
@@ -516,7 +521,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 }
                 boolean firstRegistration = neverRegistered;
                 /**
-                 * 当前channel往eventloop的selector中注册所有监听事件
+                 * 往eventloop的selector中注册 当前channel的所有监听事件，并在att绑定当前channel，用于事件返回时，回找channel
                  */
                 doRegister();
                 neverRegistered = false;
@@ -531,17 +536,23 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                  * 触发pipeline的channelRegistered
                  * 例如
                  */
+                // 调用pipeline上所有handler的 invokeChannelRegistered方法
                 pipeline.fireChannelRegistered();
+
+
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
                 if (isActive()) {
                     if (firstRegistration) {
+                        // 第一次注册：执行pipeline上所有invokeChannelActive方法
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
                         // This channel was registered before and autoRead() is set. This means we need to begin read
                         // again so that we process inbound data.
                         //
                         // See https://github.com/netty/netty/issues/4805
+
+                        // 已注册过，并开启了自动读
                         beginRead();
                     }
                 }
@@ -943,6 +954,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 没有输出缓存，即无可发送的，返回
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null || outboundBuffer.isEmpty()) {
                 return;
@@ -951,10 +963,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             inFlush0 = true;
 
             // Mark all pending write requests as failure if the channel is inactive.
-            if (!isActive()) {
+            if (!isActive()) {// 当前channel（连接）已关闭
                 try {
                     // Check if we need to generate the exception at all.
                     if (!outboundBuffer.isEmpty()) {
+                        // 清理outboundBuffer
                         if (isOpen()) {
                             outboundBuffer.failFlushed(new NotYetConnectedException(), true);
                         } else {
@@ -969,10 +982,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
-                // 执行写入？
                 /**
-                 * 普通通信发送
+                 * 客户端 、服务端 都使用请求、响应
                  * @see NioSocketChannel#doWrite(io.netty.channel.ChannelOutboundBuffer)
+                 *
+                 * 这里就是reactor的体现，serverchannel只是用于建立连接，建立后通信还是基于NioSocketChannel
                  */
                 doWrite(outboundBuffer);
             } catch (Throwable t) {

@@ -31,6 +31,9 @@ import io.netty.channel.ChannelHandlerMask.Skip;
  * releases the received messages automatically, please see {@link SimpleChannelInboundHandler}.
  * </p>
  */
+// ChannelInboundHandlerAdapter: 属于一个可直接用的通用模板
+// ChannelHandlerAdapter:抽象父类，继承默认方法，无需这里自己实现 -》主要是ctx触发对应方法的默认方法
+//     Adapter等于提供通用方法
 public class ChannelInboundHandlerAdapter extends ChannelHandlerAdapter implements ChannelInboundHandler {
 
     /**

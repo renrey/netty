@@ -91,6 +91,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Create a new instance using the given {@link ServerSocketChannel}.
      */
     public NioServerSocketChannel(ServerSocketChannel channel) {
+        // 监听OP_ACCEPT事件
         super(null, channel, SelectionKey.OP_ACCEPT);
         config = new NioServerSocketChannelConfig(this, javaChannel().socket());
     }
@@ -159,6 +160,9 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
                 /**
                  * 把channel封装成一个netty的NioSocketChannel（配置非堵塞、监听事件为可读）
                  * 然后放入buf（list）中
+                 * 1. 创建1个NioSocketChannel，用来代表 与对应客户端通信的 netty封装channel！！！
+                 *    -> 封装了java 原生SocketChannel（并配置非堵塞、监听事件为可读！！！）、保存了当前连接channel
+                 * 此时这个新的channel，注册后监听read（请求）
                  */
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
@@ -185,6 +189,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     @Override
     protected void doFinishConnect() throws Exception {
+        //服务端不能发起
         throw new UnsupportedOperationException();
     }
 

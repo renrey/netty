@@ -45,7 +45,11 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * Abstract base class for {@link OrderedEventExecutor}'s that execute all its submitted tasks in a single thread.
- *
+ * 主要是实现了 把任务放入队列，并保证有1个线程在运行（无则创建）的功能
+ * 并提供队列消费、管理任务的基础方法，但没组装起来到java线程逻辑（需要子类实现run方法） -> 并没有进行任务消费执行，需要子类来组装
+ * 核心方法：
+ * 1. execute 加入任务队列，并（基于java线程池）启动线程
+ * 2. io.netty.util.concurrent.SingleThreadEventExecutor#doStartThread() : （基于java线程池）具体java线程逻辑
  */
 public abstract class SingleThreadEventExecutor extends AbstractScheduledEventExecutor implements OrderedEventExecutor {
 
@@ -165,13 +169,13 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     protected SingleThreadEventExecutor(EventExecutorGroup parent, Executor executor,
                                         boolean addTaskWakesUp, Queue<Runnable> taskQueue,
                                         RejectedExecutionHandler rejectedHandler) {
-        super(parent);
-        this.addTaskWakesUp = addTaskWakesUp;
-        this.maxPendingTasks = DEFAULT_MAX_PENDING_EXECUTOR_TASKS;
+        super(parent);// 保存 自己的父对象
+        this.addTaskWakesUp = addTaskWakesUp;// 新增task是否唤醒线程
+        this.maxPendingTasks = DEFAULT_MAX_PENDING_EXECUTOR_TASKS;// 最大可存任务数
         // executor:默认ThreadPerTaskExecutor
         this.executor = ThreadExecutorMap.apply(executor, this);
-        this.taskQueue = ObjectUtil.checkNotNull(taskQueue, "taskQueue");
-        this.rejectedExecutionHandler = ObjectUtil.checkNotNull(rejectedHandler, "rejectedHandler");
+        this.taskQueue = ObjectUtil.checkNotNull(taskQueue, "taskQueue");// 任务队列
+        this.rejectedExecutionHandler = ObjectUtil.checkNotNull(rejectedHandler, "rejectedHandler");// 拒绝策略
     }
 
     /**
@@ -468,6 +472,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         long runTasks = 0;
         long lastExecutionTime;
         for (;;) {
+            // 执行task的run方法
             safeExecute(task);
 
             runTasks ++;
@@ -480,7 +485,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                     break;
                 }
             }
-
+            // 消费任务
             task = pollTask();
             if (task == null) {
                 lastExecutionTime = ScheduledFutureTask.nanoTime();
@@ -811,9 +816,11 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         return isTerminated();
     }
 
+    // 核心方法
     @Override
     public void execute(Runnable task) {
         ObjectUtil.checkNotNull(task, "task");
+        // LazyRunnable ：延迟任务，需要等待
         execute(task, !(task instanceof LazyRunnable) && wakesUpForTask(task));
     }
 
@@ -824,10 +831,11 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
     private void execute(Runnable task, boolean immediate) {
         boolean inEventLoop = inEventLoop();
+        // 1。 加入任务到任务队列！！！
         addTask(task);
-        // 提交线程不是EventLoop线程
+        // 2. 提交线程不是EventLoop线程，
         if (!inEventLoop) {
-            // 启动EventLoop线程（新建一条线程，执行NioEventLoop的run方法）
+            // 如果当前没有正在运行的线程，启动EventLoop线程（新建一条线程，执行NioEventLoop的run方法） -》保证有线程去消费队列并执行任务
             startThread();
             if (isShutdown()) {
                 boolean reject = false;
@@ -976,11 +984,15 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
     private void doStartThread() {
         assert thread == null;
-        // ThreadPerTaskExecutor 中创建一个线程执行下面的任务
+        // 通过ThreadPerTaskExecutor 创建一个线程执行下面的任务 -》保证了每次提交都是新建线程
         executor.execute(new Runnable() {
             @Override
             public void run() {
-                thread = Thread.currentThread();
+                // 可以看到是1个netty线程底层生命周期定义，并没有实现消费任务的功能
+                // 相应功能实现应该是实现子类去调用
+                // 目测当前线程是线程交互相关
+
+                thread = Thread.currentThread();// 保存对应创建的线程 -》毕竟这个类就是单线程的
                 if (interrupted) {
                     thread.interrupt();
                 }
@@ -991,6 +1003,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                     /**
                      * 执行NioEventLoop的run方法
                       */
+                    // 即类似java原生线程类，执行重写的run方法-》执行线程业务逻辑
                     SingleThreadEventExecutor.this.run();
                     success = true;
                 } catch (Throwable t) {
@@ -1047,7 +1060,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                             FastThreadLocal.removeAll();
 
                             STATE_UPDATER.set(SingleThreadEventExecutor.this, ST_TERMINATED);
-                            threadLock.countDown();
+                            threadLock.countDown();// 大概用来唤醒其他等待当前线程的线程
                             int numUserTasks = drainTasks();
                             if (numUserTasks > 0 && logger.isWarnEnabled()) {
                                 logger.warn("An event executor terminated with " +

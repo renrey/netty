@@ -28,6 +28,7 @@ import java.net.SocketAddress;
 
 /**
  *  Combines a {@link ChannelInboundHandler} and a {@link ChannelOutboundHandler} into one {@link ChannelHandler}.
+ *  1个类把in、out组合一起， 等于把同一个领域in、out放一起管理，无需add的时候，add多个
  */
 public class CombinedChannelDuplexHandler<I extends ChannelInboundHandler, O extends ChannelOutboundHandler>
         extends ChannelDuplexHandler {
@@ -132,7 +133,7 @@ public class CombinedChannelDuplexHandler<I extends ChannelInboundHandler, O ext
                             " if " +  CombinedChannelDuplexHandler.class.getSimpleName() +
                             " was constructed with the default constructor.");
         }
-
+        // 等于内部保存了 2套in、out的 ctx链
         outboundCtx = new DelegatingChannelHandlerContext(ctx, outboundHandler);
         inboundCtx = new DelegatingChannelHandlerContext(ctx, inboundHandler) {
             @SuppressWarnings("deprecation")
@@ -186,6 +187,7 @@ public class CombinedChannelDuplexHandler<I extends ChannelInboundHandler, O ext
 
     @Override
     public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+        // 都是in的方法
         assert ctx == inboundCtx.ctx;
         if (!inboundCtx.removed) {
             inboundHandler.channelRegistered(inboundCtx);

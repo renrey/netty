@@ -125,6 +125,7 @@ public class FastThreadLocal<V> {
     private final int index;
 
     public FastThreadLocal() {
+        // 通过全局index生成器，得到当前线程在全局map的下标
         index = InternalThreadLocalMap.nextVariableIndex();
     }
 
@@ -133,12 +134,15 @@ public class FastThreadLocal<V> {
      */
     @SuppressWarnings("unchecked")
     public final V get() {
+        // 获取当前线程本地的1个全局map（netty定义的，类似tl在java线程中有个map）
         InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
+        // 在netty当前线程本地全局map 中放入本次的map
         Object v = threadLocalMap.indexedVariable(index);
         if (v != InternalThreadLocalMap.UNSET) {
             return (V) v;
         }
 
+        // 未设置则初始化
         return initialize(threadLocalMap);
     }
 

@@ -232,8 +232,8 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
         switch (currentState) {
         case SKIP_CONTROL_CHARS:
             // Fall-through
-        case READ_INITIAL: try {
-            AppendableCharSequence line = lineParser.parse(buffer);
+        case READ_INITIAL: try {// 初始执行
+            AppendableCharSequence line = lineParser.parse(buffer);// 解析buffer
             if (line == null) {
                 return;
             }
@@ -244,6 +244,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                 return;
             }
 
+            // 创建对象HttpRequest, 缓存在当前decoder
             message = createMessage(initialLine);
             currentState = State.READ_HEADER;
             // fall-through
@@ -251,9 +252,10 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             out.add(invalidMessage(buffer, e));
             return;
         }
-        case READ_HEADER: try {
+        case READ_HEADER: try {// 处理header
+            // 读取header，根据大小判断下一步
             State nextState = readHeaders(buffer);
-            if (nextState == null) {
+            if (nextState == null) {// 粘包了
                 return;
             }
             currentState = nextState;
@@ -279,7 +281,9 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                  * length is 0. However for a response the body length is the number of octets received prior to the
                  * server closing the connection. So we treat this as variable length chunked encoding.
                  */
+                // 有内容长度
                 long contentLength = contentLength();
+                // 长度无效
                 if (contentLength == 0 || contentLength == -1 && isDecodingRequest()) {
                     out.add(message);
                     out.add(LastHttpContent.EMPTY_LAST_CONTENT);
@@ -289,12 +293,12 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
 
                 assert nextState == State.READ_FIXED_LENGTH_CONTENT ||
                         nextState == State.READ_VARIABLE_LENGTH_CONTENT;
-
+                // message对象加入out
                 out.add(message);
 
                 if (nextState == State.READ_FIXED_LENGTH_CONTENT) {
                     // chunkSize will be decreased as the READ_FIXED_LENGTH_CONTENT state reads data chunk by chunk.
-                    chunkSize = contentLength;
+                    chunkSize = contentLength;// 更新大小
                 }
 
                 // We return here, this forces decode to be called again where we will decode the content
@@ -327,17 +331,18 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             }
 
             int toRead = Math.min(readLimit, maxChunkSize);
-            if (toRead > chunkSize) {
-                toRead = (int) chunkSize;
+            if (toRead > chunkSize) {// 8192
+                toRead = (int) chunkSize;// 粘包处理
             }
             ByteBuf content = buffer.readRetainedSlice(toRead);
             chunkSize -= toRead;
 
-            if (chunkSize == 0) {
+            if (chunkSize == 0) {// 已读完这个请求
                 // Read all content.
                 out.add(new DefaultLastHttpContent(content, validateHeaders));
-                resetNow();
+                resetNow();// 重置临时保存
             } else {
+                // 还有剩余的，等于缓存到out
                 out.add(new DefaultHttpContent(content));
             }
             return;
@@ -609,11 +614,13 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                     value = valueStr + ' ' + trimmedLine;
                 } else {
                     if (name != null) {
-                        headers.add(name, value);
+                        headers.add(name, value);// 加入到message对象的headers
                     }
+                    // 解析header行
                     splitHeader(line);
                 }
 
+                // 行空了，返回 -》粘包
                 line = headerParser.parse(buffer);
                 if (line == null) {
                     return null;
@@ -621,12 +628,13 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             } while (line.length() > 0);
         }
 
+        // header都读完了，加入最后1个
         // Add the last header.
         if (name != null) {
             headers.add(name, value);
         }
 
-        // reset name and value fields
+        // reset name and value fields -》重置本地暂存
         name = null;
         value = null;
 
@@ -651,12 +659,12 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
         if (isContentAlwaysEmpty(message)) {
             HttpUtil.setTransferEncodingChunked(message, false);
             return State.SKIP_CONTROL_CHARS;
-        } else if (HttpUtil.isTransferEncodingChunked(message)) {
+        } else if (HttpUtil.isTransferEncodingChunked(message)) {// 分块传输（chunked）
             if (!contentLengthFields.isEmpty() && message.protocolVersion() == HttpVersion.HTTP_1_1) {
                 handleTransferEncodingChunkedWithContentLength(message);
             }
             return State.READ_CHUNK_SIZE;
-        } else if (contentLength() >= 0) {
+        } else if (contentLength() >= 0) {// 固定内容长度 （content-length）
             return State.READ_FIXED_LENGTH_CONTENT;
         } else {
             return State.READ_VARIABLE_LENGTH_CONTENT;

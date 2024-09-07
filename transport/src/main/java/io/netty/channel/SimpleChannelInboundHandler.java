@@ -39,6 +39,9 @@ import io.netty.util.internal.TypeParameterMatcher;
  * {@link ReferenceCountUtil#release(Object)}. In this case you may need to use
  * {@link ReferenceCountUtil#retain(Object)} if you pass the object to the next handler in the {@link ChannelPipeline}.
  */
+// 作用: 封装了常用in的read操作
+// 1. 检测类型，符合强转对象，执行自己的逻辑，不符合执行下一个
+// 2. 自动释放netty引用计数
 public abstract class SimpleChannelInboundHandler<I> extends ChannelInboundHandlerAdapter {
 
     private final TypeParameterMatcher matcher;
@@ -93,15 +96,18 @@ public abstract class SimpleChannelInboundHandler<I> extends ChannelInboundHandl
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         boolean release = true;
         try {
+            // 符合目标类型
             if (acceptInboundMessage(msg)) {
                 @SuppressWarnings("unchecked")
                 I imsg = (I) msg;
+                // 执行
                 channelRead0(ctx, imsg);
             } else {
                 release = false;
                 ctx.fireChannelRead(msg);
             }
         } finally {
+            // 自动释放引用计数
             if (autoRelease && release) {
                 ReferenceCountUtil.release(msg);
             }

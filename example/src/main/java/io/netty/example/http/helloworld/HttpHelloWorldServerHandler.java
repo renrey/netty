@@ -44,10 +44,14 @@ public class HttpHelloWorldServerHandler extends SimpleChannelInboundHandler<Htt
 
     @Override
     public void channelRead0(ChannelHandlerContext ctx, HttpObject msg) {
+        // 读取-》这里是demo中最后的部分，然后准备发送响应
+        // msg已成HttpRequest
         if (msg instanceof HttpRequest) {
             HttpRequest req = (HttpRequest) msg;
 
             boolean keepAlive = HttpUtil.isKeepAlive(req);
+
+            // 包装response对象
             FullHttpResponse response = new DefaultFullHttpResponse(req.protocolVersion(), OK,
                                                                     Unpooled.wrappedBuffer(CONTENT));
             response.headers()
@@ -63,8 +67,10 @@ public class HttpHelloWorldServerHandler extends SimpleChannelInboundHandler<Htt
                 response.headers().set(CONNECTION, CLOSE);
             }
 
+            // 调用发送响应
             ChannelFuture f = ctx.write(response);
 
+            // 非长链接，加一个 关闭连接
             if (!keepAlive) {
                 f.addListener(ChannelFutureListener.CLOSE);
             }

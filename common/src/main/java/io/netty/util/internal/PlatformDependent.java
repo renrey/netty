@@ -195,10 +195,12 @@ public final class PlatformDependent {
                 CLEANER = CleanerJava6.isSupported() ? new CleanerJava6() : NOOP;
             }
         } else {
+            // 安卓没办法
             CLEANER = NOOP;
         }
 
         // We should always prefer direct buffers by default if we can use a Cleaner to release direct buffers.
+        // 优先使用直接内存作为buffer 条件：需要定义有操作的Cleaner 去释放buffer
         DIRECT_BUFFER_PREFERRED = CLEANER != NOOP
                                   && !SystemPropertyUtil.getBoolean("io.netty.noPreferDirect", false);
         if (logger.isDebugEnabled()) {
@@ -359,6 +361,7 @@ public final class PlatformDependent {
      * {@code -Dio.netty.noPreferDirect} option.
      */
     public static boolean directBufferPreferred() {
+        // 非安卓，默认true
         return DIRECT_BUFFER_PREFERRED;
     }
 
@@ -973,12 +976,17 @@ public final class PlatformDependent {
             // Calculate the max capacity which can not be bigger than MAX_ALLOWED_MPSC_CAPACITY.
             // This is forced by the MpscChunkedArrayQueue implementation as will try to round it
             // up to the next power of two and so will overflow otherwise.
+
+            // 最小是MIN_MAX_MPSC_CAPACITY(1024*2), 最大MAX_ALLOWED_MPSC_CAPACITY
             final int capacity = max(min(maxCapacity, MAX_ALLOWED_MPSC_CAPACITY), MIN_MAX_MPSC_CAPACITY);
             return USE_MPSC_CHUNKED_ARRAY_QUEUE ? new MpscChunkedArrayQueue<T>(MPSC_CHUNK_SIZE, capacity)
                                                 : new MpscChunkedAtomicArrayQueue<T>(MPSC_CHUNK_SIZE, capacity);
         }
 
         static <T> Queue<T> newMpscQueue() {
+            // 没unsafe时，USE_MPSC_CHUNKED_ARRAY_QUEUE=false
+            //  -》即新版本没unsafe的就用MpscUnboundedAtomicArrayQueue, 老的MpscUnboundedArrayQueue
+            // 默认1024个chunk
             return USE_MPSC_CHUNKED_ARRAY_QUEUE ? new MpscUnboundedArrayQueue<T>(MPSC_CHUNK_SIZE)
                                                 : new MpscUnboundedAtomicArrayQueue<T>(MPSC_CHUNK_SIZE);
         }

@@ -1128,8 +1128,9 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     @Override
     public int writeBytes(ScatteringByteChannel in, int length) throws IOException {
+        // in:java channel
         ensureWritable(length);
-        // 读取指定下标的buffer数据到java nio channel
+        // 读取java nio channel到buffer的writerIndex开始位置
         /**
          * @see PooledByteBuf#setBytes(int, java.nio.channels.ScatteringByteChannel, int)
          */

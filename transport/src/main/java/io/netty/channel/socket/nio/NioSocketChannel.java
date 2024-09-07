@@ -66,6 +66,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
              *
              *  See <a href="https://github.com/netty/netty/issues/2308">#2308</a>.
              */
+            // 通过provider 打开1个SocketChannel-》即os上创建对应的fd
             return provider.openSocketChannel();
         } catch (IOException e) {
             throw new ChannelException("Failed to open a socket.", e);
@@ -85,6 +86,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
      * Create a new instance using the given {@link SelectorProvider}.
      */
     public NioSocketChannel(SelectorProvider provider) {
+        // newSocket: 通过provider 创建SocketChannel-》在os创建打开fd
         this(newSocket(provider));
     }
 
@@ -102,7 +104,10 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
      * @param socket    the {@link SocketChannel} which will be used
      */
     public NioSocketChannel(Channel parent, SocketChannel socket) {
+        // 1. java原生nio的channel的设置非阻塞、初始监听READ事件（读请求）
+        // 2. 创建netty的ChannelPipeline对象！！！
         super(parent, socket);
+        // buffer大小的配置
         config = new NioSocketChannelConfig(this, socket.socket());
     }
 
@@ -314,7 +319,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
         boolean success = false;
         try {
+            // 发起socket连接
             boolean connected = SocketUtils.connect(javaChannel(), remoteAddress);
+            // 未成功，则监听OP_CONNECT等待 io可进行
             if (!connected) {
                 selectionKey().interestOps(SelectionKey.OP_CONNECT);
             }
@@ -351,6 +358,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
         // 可读取大小更新到attemptedBytesRead
         allocHandle.attemptedBytesRead(byteBuf.writableBytes());
+
+        // 从java channel写入指定大小到byteBuf
         return byteBuf.writeBytes(javaChannel(), allocHandle.attemptedBytesRead());
     }
 
@@ -384,7 +393,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         // java channel
         SocketChannel ch = javaChannel();
-        // 自旋次数限制
+        // 默认16次 -》自旋次数
         int writeSpinCount = config().getWriteSpinCount();
         do {
             // 无需要执行flush的对象，清掉监听WRITE事件
@@ -396,21 +405,26 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             }
 
             // Ensure the pending writes are made of ByteBufs only.
-            int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();
+            int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();// 1次写操作最多可写的字节大小
             // 获取本次需要write的多个ByteBuf（从entry链表获取flushed状态的），转成java ByteBuffer数组
+
+            // 用于保存这些buffer块地址的数组 ，最多保存1024个buffer的地址，这个数组是线程独有的，同一线程可复用
+            // 1. 把本次需要写的 内容buffer 添加到nioBuffers数组
             ByteBuffer[] nioBuffers = in.nioBuffers(1024, maxBytesPerGatheringWrite);
-            int nioBufferCnt = in.nioBufferCount();
+            int nioBufferCnt = in.nioBufferCount();// 本次需要操作多少个buffer
 
             // Always use nioBuffers() to workaround data-corruption.
             // See https://github.com/netty/netty/issues/2761
             switch (nioBufferCnt) {
                 // 比如有个FileRegion在flushedentry链表头时，cnt=0，此时先write这个Region
                 case 0:
+                    // 特殊情况
                     // We have something else beside ByteBuffers to write so fallback to normal writes.
-                    writeSpinCount -= doWrite0(in);
+                    writeSpinCount -= doWrite0(in);// 写文件
                     break;
                 // 本次只需写入1个entry（可能太大or真的只有1个）
                 case 1: {
+                    // 只有1个buffer需要写，直接写即可
                     // Only one ByteBuf so use non-gathering write
                     // Zero length buffers are not added to nioBuffers by ChannelOutboundBuffer, so there is no need
                     // to check if the total size of all the buffers is non-zero.
@@ -418,6 +432,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     int attemptedBytes = buffer.remaining();
                     /**
                      * 通过java channel写入write（1个entry的内容）
+                     * 写入 channel
+                     * 把这个buffer内容发送
                      */
                     final int localWrittenBytes = ch.write(buffer);
                     // 无法往写缓冲区写，因此注册监听WRITE事件，等Eventloop线程的selector监听有空间可写到再继续处理
@@ -435,12 +451,15 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     break;
                 }
                 default: {
+                    // 需要写多个buffer块
                     // Zero length buffers are not added to nioBuffers by ChannelOutboundBuffer, so there is no need
                     // to check if the total size of all the buffers is non-zero.
                     // We limit the max amount to int above so cast is safe
                     long attemptedBytes = in.nioBufferSize();
                     /**
                      *  java channel 写入ByteBuffer数组（多个）
+                     * 写入channel，使用地址数组作为参数
+                     * 多个buffer写入
                      */
                     final long localWrittenBytes = ch.write(nioBuffers, 0, nioBufferCnt);
                     // 无法往写缓冲区写，因此注册监听WRITE事件，等Eventloop线程的selector监听有空间写到再继续处理
@@ -458,7 +477,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     break;
                 }
             }
-        } while (writeSpinCount > 0);
+        } while (writeSpinCount > 0);// 等于1个这个操作 执行16次发送操作
 
         /**
          * 只有写文件才有可能导致writeSpinCount<0,（本次写，没写入内容）

@@ -57,6 +57,9 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
     }
 
     protected boolean continueReading(RecvByteBufAllocator.Handle allocHandle) {
+        /**
+         * @see DefaultMaxMessagesRecvByteBufAllocator.MaxMessageHandle#continueReading()
+         */
         return allocHandle.continueReading();
     }
 
@@ -69,6 +72,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             assert eventLoop().inEventLoop();
             final ChannelConfig config = config();
             final ChannelPipeline pipeline = pipeline();
+            // 默认AdaptiveRecvByteBufAllocator
             final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
             allocHandle.reset(config);
 
@@ -81,6 +85,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                          * 接受建立连接，生成java channel，并生成对应netty channel
                          * @see  NioServerSocketChannel#doReadMessages(java.util.List)
                          */
+                        // 接受连接，得到与这个客户端通信的channel（NioSocketChannel，与客户端的一样）
                         int localRead = doReadMessages(readBuf);
                         if (localRead == 0) {
                             break;
@@ -91,13 +96,13 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                         }
 
                         allocHandle.incMessagesRead(localRead);
-                    } while (continueReading(allocHandle));
+                    } while (continueReading(allocHandle));// 是否还有
                 } catch (Throwable t) {
                     exception = t;
                 }
 
                 int size = readBuf.size();
-                // 遍历本次建立的netty channel
+                // 遍历本次建立的netty channel.遍历buf中所有的已建立连接的客户端channel
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
                     // 执行pipeline的Read
@@ -106,9 +111,11 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                      * 1. 把childHandler加入到这个channel的pipeline
                      * 2. 并把channel注册到childGroup的中随机一个EventGroup进行监听处理
                      */
+                    readPending = false;
+                    // 执行pipeline的ChannelRead -》实际等于初始化这些channel pipeline ctx
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
-                // 清空buf
+                // 清空buf，那些channel应该是在ChannelRead被保存注册来实现子reactor 监听通信
                 readBuf.clear();
                 /**
                  * 就是说buf就是用来接收所有建立连接的NioSocketChannel（里面实际是SocketChannel）
@@ -116,7 +123,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                  * 执行完后，全从buf删掉，就是说这些NioSocketChannel跟当前的ServerSocketChannel没交互了
                  */
                 allocHandle.readComplete();
-                pipeline.fireChannelReadComplete();
+                pipeline.fireChannelReadComplete();// 执行pipeline的ChannelReadComplete
 
                 if (exception != null) {
                     closed = closeOnReadError(exception);
@@ -151,23 +158,28 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
         int maxMessagesPerWrite = maxMessagesPerWrite();
         while (maxMessagesPerWrite > 0) {
+            // 获取
             Object msg = in.current();
             if (msg == null) {
                 break;
             }
             try {
                 boolean done = false;
+                // 本次写入最最多失败重试16次
                 for (int i = config().getWriteSpinCount() - 1; i >= 0; i--) {
+                    // 执行写入操作
                     if (doWriteMessage(msg, in)) {
                         done = true;
                         break;
                     }
                 }
 
+                // 写入成功，继续直到in没数据
                 if (done) {
                     maxMessagesPerWrite--;
-                    in.remove();
+                    in.remove();// 移除对应空间-> 移除链表，回收空间
                 } else {
+                    // 没成功返回
                     break;
                 }
             } catch (Exception e) {
@@ -180,11 +192,13 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             }
         }
         if (in.isEmpty()) {
+            // 全部写完，去除监听写
             // Wrote all messages.
             if ((interestOps & SelectionKey.OP_WRITE) != 0) {
                 key.interestOps(interestOps & ~SelectionKey.OP_WRITE);
             }
         } else {
+            // 未全部写，需要继续监听
             // Did not write all messages.
             if ((interestOps & SelectionKey.OP_WRITE) == 0) {
                 key.interestOps(interestOps | SelectionKey.OP_WRITE);

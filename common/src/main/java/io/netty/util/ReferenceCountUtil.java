@@ -84,6 +84,7 @@ public final class ReferenceCountUtil {
      * If the specified message doesn't implement {@link ReferenceCounted}, this method does nothing.
      */
     public static boolean release(Object msg) {
+        // ByteBuf类都是
         if (msg instanceof ReferenceCounted) {
             return ((ReferenceCounted) msg).release();
         }

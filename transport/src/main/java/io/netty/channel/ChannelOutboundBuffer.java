@@ -419,19 +419,22 @@ public final class ChannelOutboundBuffer {
         long nioBufferSize = 0;
         int nioBufferCount = 0;
         final InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
+
+        // 获取线程变量的NIO_BUFFERS -》即每个线程会有独有nio buffer区域 ，初始1024个buffer
         ByteBuffer[] nioBuffers = NIO_BUFFERS.get(threadLocalMap);
-        Entry entry = flushedEntry; // 实际待操作的对象链表头
+        Entry entry = flushedEntry;// 从最后1个flush的entry开始遍历-》链表
         /**
          * 一直循环遍历已flushed的链表，直到类型不是ByteBuf
          * 例如遇到FileRegion就不循环了，count=0
          */
-        while (isFlushedEntry(entry) && entry.msg instanceof ByteBuf) {
+        while (isFlushedEntry(entry) && entry.msg instanceof ByteBuf) {// isFlushedEntry判断当前entry是否可flush
             if (!entry.cancelled) {
                 ByteBuf buf = (ByteBuf) entry.msg;
                 final int readerIndex = buf.readerIndex();
                 final int readableBytes = buf.writerIndex() - readerIndex;
 
                 if (readableBytes > 0) {
+                    // 判断是否加入后是否超过maxBytes上限
                     if (maxBytes - readableBytes < nioBufferSize && nioBufferCount != 0) {
                         // If the nioBufferSize + readableBytes will overflow maxBytes, and there is at least one entry
                         // we stop populate the ByteBuffer array. This is done for 2 reasons:
@@ -446,26 +449,36 @@ public final class ChannelOutboundBuffer {
                         // - https://linux.die.net//man/2/writev
                         break;
                     }
+                    // 进行把entry的buffer块（地址）加入 线程独有的NIO_BUFFERS数组的操作 -》只是存对应空间地址
+
                     nioBufferSize += readableBytes;
+
+                    // 下面的count就是1个entry需要多个 ByteBuffer块
                     int count = entry.count;
                     if (count == -1) {
                         //noinspection ConstantValueVariableUse
                         entry.count = count = buf.nioBufferCount();
                     }
+                    // 其实默认还是不能超1024个，就默认不会扩容
                     int neededSpace = min(maxCount, nioBufferCount + count);
                     if (neededSpace > nioBuffers.length) {
+                        // 扩容nioBuffers数组 -》一直翻倍直到达到需求
                         nioBuffers = expandNioBufferArray(nioBuffers, neededSpace, nioBufferCount);
                         NIO_BUFFERS.set(threadLocalMap, nioBuffers);
                     }
                     if (count == 1) {
+                        // 当前entry只需要1个buffer，直接加入数组
                         ByteBuffer nioBuf = entry.buf;
                         if (nioBuf == null) {
                             // cache ByteBuffer as it may need to create a new ByteBuffer instance if its a
                             // derived buffer
                             entry.buf = nioBuf = buf.internalNioBuffer(readerIndex, readableBytes);
                         }
+
+                        // 加入nioBuffers数组
                         nioBuffers[nioBufferCount++] = nioBuf;
                     } else {
+                        // 需要多个，循环放入
                         // The code exists in an extra method to ensure the method is not too big to inline as this
                         // branch is not very likely to get hit very frequently.
                         nioBufferCount = nioBuffers(entry, buf, nioBuffers, nioBufferCount, maxCount);
@@ -476,7 +489,7 @@ public final class ChannelOutboundBuffer {
                 }
             }
             // 遍历下一个flushed的
-            entry = entry.next;
+            entry = entry.next;// 链表的下一个
         }
         this.nioBufferCount = nioBufferCount;
         this.nioBufferSize = nioBufferSize;
@@ -508,7 +521,7 @@ public final class ChannelOutboundBuffer {
         do {
             // double capacity until it is big enough
             // See https://github.com/netty/netty/issues/1890
-            newCapacity <<= 1;
+            newCapacity <<= 1;// 翻倍
 
             if (newCapacity < 0) {
                 throw new IllegalStateException();
@@ -516,7 +529,9 @@ public final class ChannelOutboundBuffer {
 
         } while (neededSpace > newCapacity);
 
+        // 申请新的数组 , 这里申请的数组，里面都是存地址
         ByteBuffer[] newArray = new ByteBuffer[newCapacity];
+        // 拷贝原有内存buffer地址到新数组-》并没有把这buffer块移动
         System.arraycopy(array, 0, newArray, 0, size);
 
         return newArray;

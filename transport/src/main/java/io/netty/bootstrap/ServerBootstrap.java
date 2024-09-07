@@ -129,6 +129,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
     @Override
     void init(Channel channel) {
+        // 属性配置
         setChannelOptions(channel, newOptionsArray(), logger);
         setAttributes(channel, newAttributesArray());
 
@@ -147,18 +148,26 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
          * 实际作用：在有新channel（socket）时，做这个channel的初始化
          *
          */
+        // ChannelPipeline加入一个初始的ChannelInitializer -> 创建worker的channel时执行
+        // 作用：给worker 的channel pipeline添加执行的handler
+        // 跟普通的Boostrap设置handler使用ChannelInitializer的效果一样，但那个外部显式，这里是内部自动添加
         p.addLast(new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(final Channel ch) {
                 // 还是当前channel的pipeline
                 final ChannelPipeline pipeline = ch.pipeline();
                 // 1.如果有设置（ServerBootstrap）的handler，先把这个handler加入到server channel的pipeline
+                // 1. worker的handler链初始使用Boostrap的handler -》所以使用log日志打印
+                // 即从group的复用 bt中定义的父group的handler（但一般就是log打印）
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
                     pipeline.addLast(handler);
                 }
 
                 // 2. 启动这个新channel的EventLoop线程（如果没启动的话）,保证线程启动
+                // 2. 提交异步加入worker的handler链，不与当前线程同步执行
+                // 再加入ServerBootstrapAcceptor（用来把channel注册childGroup）
+                // 这里提交，等于启动channel的EventLoop线程（如果没启动的话），好像异步对速度作用不大
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
@@ -171,6 +180,9 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
                                 ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
                     }
                 });
+                // 在server channel接收后创建对应socketchannel后，会调用channelRead 从而触发ServerBootstrapAcceptor，里面把那个channel注册到子线程组
+
+                // 所以主线程 的handler链 ：Boostrap的handler -> ServerBootstrapAcceptor
             }
         });
     }
@@ -223,6 +235,8 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             // 等于当前channel已经是childGroup的channel, 所以叫child
             final Channel child = (Channel) msg;
             // 1. 把ServerBootstrap的ChildHandler加入到channel(NioSocketChannel)的pipeline中！！！
+
+            // 把ServerBootstrap构造时的ChildHandler加入到channel 的pipeline中-》一般这个handler是初始化（创建initchannel）使用，加入真正handler加入到pipeline
             child.pipeline().addLast(childHandler);
 
             setChannelOptions(child, childOptions, logger);
@@ -230,6 +244,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
             try {
                 // 2. 把channel注册到childGroup中的一个线程
+                // 把当前与客户端通信channel注册到childGroup中的一个Executor -》子reactor
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {
@@ -238,6 +253,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
                         }
                     }
                 });
+                // 然后register时，会执行pipeline，把定义handler注册到pipeline
             } catch (Throwable t) {
                 forceClose(child, t);
             }

@@ -30,7 +30,7 @@ import static io.netty.handler.codec.http.HttpObjectDecoder.DEFAULT_MAX_INITIAL_
 /**
  * A combination of {@link HttpRequestDecoder} and {@link HttpResponseEncoder}
  * which enables easier server side HTTP implementation.
- *
+ * http 的序列化、反序列化 ，所以组合起来
  * @see HttpClientCodec
  */
 public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequestDecoder, HttpResponseEncoder>
@@ -39,6 +39,7 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
     /** A queue that is used for correlating a request and a response. */
     private final Queue<HttpMethod> queue = new ArrayDeque<HttpMethod>();
 
+    // 构造方法：把HttpServerRequestDecoder、HttpServerResponseEncoder绑定到inboundHandler、outboundHandler
     /**
      * Creates a new instance with the default decoder options
      * ({@code maxInitialLineLength (4096}}, {@code maxHeaderSize (8192)}, and
@@ -94,6 +95,7 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
         ctx.pipeline().remove(this);
     }
 
+    // 反序列化
     private final class HttpServerRequestDecoder extends HttpRequestDecoder {
 
         HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
@@ -120,8 +122,10 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
         @Override
         protected void decode(ChannelHandlerContext ctx, ByteBuf buffer, List<Object> out) throws Exception {
             int oldSize = out.size();
+            // 读取当前buffer
             super.decode(ctx, buffer, out);
-            int size = out.size();
+            int size = out.size();// 读取后out的数量
+            // 把新读取的method加入到queue
             for (int i = oldSize; i < size; i++) {
                 Object obj = out.get(i);
                 if (obj instanceof HttpRequest) {
@@ -131,6 +135,13 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
         }
     }
 
+    // 序列化
+    //
+    // 实现的底层netty类：ChannelOutboundHandlerAdapter
+    // 实现netty类后的模板方法，保留了抽象方法需要实现: MessageToMessageEncoder -》序列化字节流后调用netty api
+    // HttpObjectEncoder: 通用实现了http对象转字节流
+    // HttpResponseEncoder : 在HttpObjectEncoder基础（扩展点），处理
+    // HttpServerResponseEncoder：特殊情况处理
     private final class HttpServerResponseEncoder extends HttpResponseEncoder {
 
         private HttpMethod method;

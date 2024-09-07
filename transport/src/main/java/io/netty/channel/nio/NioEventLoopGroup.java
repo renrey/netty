@@ -34,6 +34,7 @@ import java.util.concurrent.ThreadFactory;
 
 /**
  * {@link MultithreadEventLoopGroup} implementations which is used for NIO {@link Selector} based {@link Channel}s.
+ * 直接对外对象，包含了Nio（新增）、多线程el组（继承）
  */
 public class NioEventLoopGroup extends MultithreadEventLoopGroup {
 
@@ -89,17 +90,24 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
 
     public NioEventLoopGroup(
             int nThreads, Executor executor, final SelectorProvider selectorProvider) {
+        // 其他
         this(nThreads, executor, selectorProvider, DefaultSelectStrategyFactory.INSTANCE);
     }
 
+    // 本类底层构造
     public NioEventLoopGroup(int nThreads, Executor executor, final SelectorProvider selectorProvider,
                              final SelectStrategyFactory selectStrategyFactory) {
+        // 除了nThreads（线程数）、executor（基于的已有线程，可无），其他都是这个类新增参数在父类只是保存
+        // selectorProvider、selectStrategyFactory：都是nio下使用select相关
         super(nThreads, executor, selectorProvider, selectStrategyFactory, RejectedExecutionHandlers.reject());
     }
+    // 本类底层构造
 
     public NioEventLoopGroup(int nThreads, Executor executor, EventExecutorChooserFactory chooserFactory,
                              final SelectorProvider selectorProvider,
                              final SelectStrategyFactory selectStrategyFactory) {
+        // 这里3个父类，多了chooserFactory
+        // 本来定义参数多了个RejectedExecutionHandlers-》拒绝策略
         super(nThreads, executor, chooserFactory, selectorProvider, selectStrategyFactory,
                 RejectedExecutionHandlers.reject());
     }
@@ -116,6 +124,7 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
                              final SelectStrategyFactory selectStrategyFactory,
                              final RejectedExecutionHandler rejectedExecutionHandler,
                              final EventLoopTaskQueueFactory taskQueueFactory) {
+        // 这里4个本来定义的参数 -》第4个taskQueueFactory 任务队列 工厂
         super(nThreads, executor, chooserFactory, selectorProvider, selectStrategyFactory,
                 rejectedExecutionHandler, taskQueueFactory);
     }
@@ -140,6 +149,7 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
                              RejectedExecutionHandler rejectedExecutionHandler,
                              EventLoopTaskQueueFactory taskQueueFactory,
                              EventLoopTaskQueueFactory tailTaskQueueFactory) {
+        // 5个本类定义参数-》第5个tailTaskQueueFactory 失败任务队列 工厂
         super(nThreads, executor, chooserFactory, selectorProvider, selectStrategyFactory,
                 rejectedExecutionHandler, taskQueueFactory, tailTaskQueueFactory);
     }
@@ -164,6 +174,8 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         }
     }
 
+    // 这个类重写的方法 -》在这里集成nio相关功能
+    // 多线程下多个 事件执行器 -》每个都是1个线程，等于把多个EventLoop封装成1个集合
     @Override
     protected EventLoop newChild(Executor executor, Object... args) throws Exception {
         // 获取SelectorProvider
@@ -171,10 +183,12 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         SelectStrategyFactory selectStrategyFactory = (SelectStrategyFactory) args[1];
         // 拒绝策略
         RejectedExecutionHandler rejectedExecutionHandler = (RejectedExecutionHandler) args[2];
+        // 任务队列 的构造工厂
         EventLoopTaskQueueFactory taskQueueFactory = null;
         EventLoopTaskQueueFactory tailTaskQueueFactory = null;
 
         int argsLength = args.length;
+        // 如果有传入taskQueueFactory、tailTaskQueueFactory，则使用构造函数传入的 -》应该默认是用到的，有默认创建
         if (argsLength > 3) {
             taskQueueFactory = (EventLoopTaskQueueFactory) args[3];
         }
@@ -182,6 +196,7 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
             tailTaskQueueFactory = (EventLoopTaskQueueFactory) args[4];
         }
         // 其实就是给这个线程创建一个Selector，还有必要的属性
+        // 实际参数就是构造方法的5个自定义参数 + 当前对象本身的executor -》就是构造参数赋给这个nio EL
         return new NioEventLoop(this, executor, selectorProvider,
                 selectStrategyFactory.newSelectStrategy(),
                 rejectedExecutionHandler, taskQueueFactory, tailTaskQueueFactory);

@@ -119,7 +119,7 @@ public class ResourceLeakDetector<T> {
 
         // If new property name is present, use it
         levelStr = SystemPropertyUtil.get(PROP_LEVEL, levelStr);
-        Level level = Level.parseLevel(levelStr);
+        Level level = Level.parseLevel(levelStr);// 默认simple
 
         TARGET_RECORDS = SystemPropertyUtil.getInt(PROP_TARGET_RECORDS, DEFAULT_TARGET_RECORDS);
         SAMPLING_INTERVAL = SystemPropertyUtil.getInt(PROP_SAMPLING_INTERVAL, DEFAULT_SAMPLING_INTERVAL);
@@ -160,6 +160,7 @@ public class ResourceLeakDetector<T> {
         return level;
     }
 
+    // 监控已有buf
     /** the collection of active resources */
     private final Set<DefaultResourceLeak<?>> allLeaks =
             Collections.newSetFromMap(new ConcurrentHashMap<DefaultResourceLeak<?>, Boolean>());
@@ -259,7 +260,9 @@ public class ResourceLeakDetector<T> {
             }
             return null;
         }
+        // obj：目标对象
         reportLeak();
+        // obj对象变成弱引用——》避免这里忘记去除引用
         return new DefaultResourceLeak(obj, refQueue, allLeaks);
     }
 
@@ -368,6 +371,7 @@ public class ResourceLeakDetector<T> {
                 Object referent,
                 ReferenceQueue<Object> refQueue,
                 Set<DefaultResourceLeak<?>> allLeaks) {
+            // 把目标对象设成，弱引用
             super(referent, refQueue);
 
             assert referent != null;
@@ -454,6 +458,7 @@ public class ResourceLeakDetector<T> {
 
         @Override
         public boolean close() {
+            // 除掉弱引用
             if (allLeaks.remove(this)) {
                 // Call clear so the reference is not even enqueued.
                 clear();

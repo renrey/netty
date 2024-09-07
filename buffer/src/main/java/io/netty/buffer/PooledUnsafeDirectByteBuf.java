@@ -27,6 +27,8 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 
 final class PooledUnsafeDirectByteBuf extends PooledByteBuf<ByteBuffer> {
+
+    /// 全局静态 PooledUnsafeDirectByteBuf的对象池
     private static final ObjectPool<PooledUnsafeDirectByteBuf> RECYCLER = ObjectPool.newPool(
             new ObjectCreator<PooledUnsafeDirectByteBuf>() {
         @Override
@@ -36,6 +38,7 @@ final class PooledUnsafeDirectByteBuf extends PooledByteBuf<ByteBuffer> {
     });
 
     static PooledUnsafeDirectByteBuf newInstance(int maxCapacity) {
+        // 从 的全局PooledUnsafeDirectByteBuf对象池 获取复用的buf
         PooledUnsafeDirectByteBuf buf = RECYCLER.get();
         buf.reuse(maxCapacity);
         return buf;
@@ -51,7 +54,7 @@ final class PooledUnsafeDirectByteBuf extends PooledByteBuf<ByteBuffer> {
     void init(PoolChunk<ByteBuffer> chunk, ByteBuffer nioBuffer,
               long handle, int offset, int length, int maxLength, PoolThreadCache cache) {
         super.init(chunk, nioBuffer, handle, offset, length, maxLength, cache);
-        initMemoryAddress();
+        initMemoryAddress();// 获取具体内存地址
     }
 
     @Override
@@ -61,6 +64,7 @@ final class PooledUnsafeDirectByteBuf extends PooledByteBuf<ByteBuffer> {
     }
 
     private void initMemoryAddress() {
+        // 获取内存中的地址
         memoryAddress = PlatformDependent.directBufferAddress(memory) + offset;
     }
 

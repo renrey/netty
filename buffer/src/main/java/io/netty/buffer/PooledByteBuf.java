@@ -61,8 +61,8 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         assert chunk != null;
 
         this.chunk = chunk;
-        memory = chunk.memory;
-        tmpNioBuf = nioBuffer;
+        memory = chunk.memory;// 对应的java 原生DirectByteBuffer
+        tmpNioBuf = nioBuffer; // 临时使用java buffer
         allocator = chunk.arena.parent;
         this.cache = cache;
         this.handle = handle;
@@ -166,11 +166,16 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     protected final void deallocate() {
         if (handle >= 0) {
             final long handle = this.handle;
-            this.handle = -1;
+            this.handle = -1;// 等于后面进来的都不能用这个了
+
+            // 各种引用清空
             memory = null;
+            // 把当前申请的chunk 放回到poolarea（即分配器相关）
             chunk.arena.free(chunk, tmpNioBuf, handle, maxLength, cache);
             tmpNioBuf = null;
             chunk = null;
+
+            // 回收当前buf对象-》放回到对应类型对象池的 本地线程的栈中
             recycle();
         }
     }
@@ -184,7 +189,10 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     }
 
     final ByteBuffer _internalNioBuffer(int index, int length, boolean duplicate) {
-        index = idx(index);
+        index = idx(index);// 转成正确下标
+
+        // duplicate 就不复用tmpNioBuf
+        // 没有tmpNioBuf的时候，还是复制新区域
         ByteBuffer buffer = duplicate ? newInternalNioBuffer(memory) : internalNioBuffer();
         buffer.limit(index + length).position(index);
         return buffer;
@@ -250,6 +258,8 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     @Override
     public final int setBytes(int index, ScatteringByteChannel in, int length) throws IOException {
         try {
+            // internalNioBuffer: 获取实际的java nio ByteBuffer（没有会创建的话会新建）
+            // read 原生调用，从in写入到ByteBuffer
             return in.read(internalNioBuffer(index, length));
         } catch (ClosedChannelException ignored) {
             return -1;

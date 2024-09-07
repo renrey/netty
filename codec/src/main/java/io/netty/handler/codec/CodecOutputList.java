@@ -67,11 +67,13 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         }
 
         public CodecOutputList getOrCreate() {
+            // 可用对象，返回一个新对象-》但不能回收到池里
             if (count == 0) {
                 // Return a new CodecOutputList which will not be cached. We use a size of 4 to keep the overhead
                 // low.
                 return new CodecOutputList(NOOP_RECYCLER, 4);
             }
+            // 计数-1 -》等于一个对象出去了
             --count;
 
             int idx = (currentIdx - 1) & mask;
@@ -91,6 +93,7 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
     }
 
     static CodecOutputList newInstance() {
+        // 每个线程专有池
         return CODEC_OUTPUT_LISTS_POOL.get().getOrCreate();
     }
 

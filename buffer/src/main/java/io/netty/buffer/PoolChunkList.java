@@ -97,19 +97,24 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     boolean allocate(PooledByteBuf<T> buf, int reqCapacity, int sizeIdx, PoolThreadCache threadCache) {
+        // 拿到本次分配的需要的size
         int normCapacity = arena.sizeIdx2size(sizeIdx);
-        if (normCapacity > maxCapacity) {
+        if (normCapacity > maxCapacity) {// 超过，分配失败
             // Either this PoolChunkList is empty or the requested capacity is larger then the capacity which can
             // be handled by the PoolChunks that are contained in this PoolChunkList.
             return false;
         }
 
+        // 遍历当前chunk链表
         for (PoolChunk<T> cur = head; cur != null; cur = cur.next) {
+            // 在当前chunk执行分配 normal page
             if (cur.allocate(buf, reqCapacity, sizeIdx, threadCache)) {
+                // 空闲空间小于下限
                 if (cur.freeBytes <= freeMinThreshold) {
-                    remove(cur);
-                    nextList.add(cur);
+                    remove(cur);// 移除当前链表
+                    nextList.add(cur);// 把当前chunk加入下一级的链表
                 }
+                // 成功
                 return true;
             }
         }
@@ -154,10 +159,11 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     void add(PoolChunk<T> chunk) {
-        if (chunk.freeBytes <= freeMinThreshold) {
-            nextList.add(chunk);
+        if (chunk.freeBytes <= freeMinThreshold) {// 当前chunk的空闲空间小于freeMinThreshold-》不能放入
+            nextList.add(chunk);// 放入下一个 chunk list
             return;
         }
+        // 插入：头插法，无dummy
         add0(chunk);
     }
 
@@ -171,6 +177,7 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
             chunk.prev = null;
             chunk.next = null;
         } else {
+            // 头插法
             chunk.prev = null;
             chunk.next = head;
             head.prev = chunk;

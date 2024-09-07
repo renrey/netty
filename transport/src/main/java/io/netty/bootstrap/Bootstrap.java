@@ -156,9 +156,11 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
      * @see #connect()
      */
     private ChannelFuture doResolveAndConnect(final SocketAddress remoteAddress, final SocketAddress localAddress) {
+        // 1. 创建并初始化 (配置类的)channel，然后注册 -> 创建java nio channel（申请打开fd）、netty pipeline初始化
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
 
+        // 此时，group的eventloop已在监听channel的事件
         if (regFuture.isDone()) {
             if (!regFuture.isSuccess()) {
                 return regFuture;
@@ -166,6 +168,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
             /**
              * 执行入口
              */
+            // 2. 让channel的eventloop线程执行pipeline的connect方法
             return doResolveAndConnect0(channel, remoteAddress, localAddress, channel.newPromise());
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
@@ -208,6 +211,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
                 // Resolver has no idea about what to do with the specified remote address or it's resolved already.
                 /**
                  * 执行入口
+                 * 让channel的eventloop线程执行 发起连接-》执行pipeline的connect方法
                  */
                 doConnect(remoteAddress, localAddress, promise);
                 return promise;
@@ -253,6 +257,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
         // the pipeline in its channelRegistered() implementation.
         final Channel channel = connectPromise.channel();
+        // 都是eventloop线程来执行！！！
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
@@ -260,11 +265,13 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
                  * 执行入口
                  * @see AbstractChannel#connect(java.net.SocketAddress, java.net.SocketAddress, io.netty.channel.ChannelPromise)
                  */
+                // 实际就是执行pipeline的connect方法
                 if (localAddress == null) {
                     channel.connect(remoteAddress, connectPromise);
                 } else {
                     channel.connect(remoteAddress, localAddress, connectPromise);
                 }
+                // 加入个回调如果失败就把前面的关闭
                 connectPromise.addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
             }
         });
@@ -273,8 +280,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     @Override
     void init(Channel channel) {
         ChannelPipeline p = channel.pipeline();
-        p.addLast(config.handler());
+        p.addLast(config.handler());// 把boostrap的hanlder加入到pipeline，一般就是ChannelInitializer
 
+        // 配置option，attribute
         setChannelOptions(channel, newOptionsArray(), logger);
         setAttributes(channel, newAttributesArray());
     }

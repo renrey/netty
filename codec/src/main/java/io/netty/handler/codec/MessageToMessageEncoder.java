@@ -77,17 +77,21 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
         return matcher.match(msg);
     }
 
+    // 发送
     @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         CodecOutputList out = null;
         try {
+            // 判断msg是否当前处理器处理的对象
             if (acceptOutboundMessage(msg)) {
                 out = CodecOutputList.newInstance();
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;
                 try {
+                    // 执行编码
                     encode(ctx, cast, out);
                 } finally {
+                    // 完成一定要释放msg占用的空间
                     ReferenceCountUtil.release(cast);
                 }
 
@@ -96,6 +100,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
                             StringUtil.simpleClassName(this) + " must produce at least one message.");
                 }
             } else {
+                // 不是本处理器处理的，则调用链中下一个
                 ctx.write(msg, promise);
             }
         } catch (EncoderException e) {
@@ -121,7 +126,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
                         }
                     }
                 } finally {
-                    out.recycle();
+                    out.recycle();// 回收CodecOutputList对象，总共16个
                 }
             }
         }

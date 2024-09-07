@@ -62,6 +62,7 @@ final class ChannelHandlerMask {
             MASK_CLOSE | MASK_DEREGISTER | MASK_READ | MASK_WRITE | MASK_FLUSH;
     private static final int MASK_ALL_OUTBOUND = MASK_EXCEPTION_CAUGHT | MASK_ONLY_OUTBOUND;
 
+    // key=handler class，v=mask(handler有实现了什么内置方法，标记)
     private static final FastThreadLocal<Map<Class<? extends ChannelHandler>, Integer>> MASKS =
             new FastThreadLocal<Map<Class<? extends ChannelHandler>, Integer>>() {
                 @Override
@@ -76,11 +77,12 @@ final class ChannelHandlerMask {
     static int mask(Class<? extends ChannelHandler> clazz) {
         // Try to obtain the mask from the cache first. If this fails calculate it and put it in the cache for fast
         // lookup in the future.
+        // 线程map
         Map<Class<? extends ChannelHandler>, Integer> cache = MASKS.get();
         Integer mask = cache.get(clazz);
         if (mask == null) {
-            mask = mask0(clazz);
-            cache.put(clazz, mask);
+            mask = mask0(clazz);// mask是当前handler有哪些方法的标记
+            cache.put(clazz, mask);// 当前class存到map里作为key，v=mask
         }
         return mask;
     }

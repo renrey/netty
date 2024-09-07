@@ -52,10 +52,10 @@ public final class HttpHelloWorldServer {
         try {
             ServerBootstrap b = new ServerBootstrap();
             b.option(ChannelOption.SO_BACKLOG, 1024);
-            b.group(bossGroup, workerGroup)
-             .channel(NioServerSocketChannel.class)
-             .handler(new LoggingHandler(LogLevel.INFO))
-             .childHandler(new HttpHelloWorldServerInitializer(sslCtx));
+            b.group(bossGroup, workerGroup)// 主（监听端口的主线程）、子线程组（多个负责与客户端通信）
+             .channel(NioServerSocketChannel.class)//
+             .handler(new LoggingHandler(LogLevel.INFO))// 主线程打印（哪些生命周期要打印）
+             .childHandler(new HttpHelloWorldServerInitializer(sslCtx));// 子线程的channel handler，一般是在把channel注册到el时执行，用于把其他handler加入到pipeline
 
             Channel ch = b.bind(PORT).sync().channel();
 

@@ -45,11 +45,11 @@ public class RedisClient {
         try {
             Bootstrap b = new Bootstrap();
             b.group(group)
-             .channel(NioSocketChannel.class)
+             .channel(NioSocketChannel.class)// 定义使用的channel类 -> channel工厂通过反射创建这个channel类
              .handler(new ChannelInitializer<SocketChannel>() {
                  @Override
                  protected void initChannel(SocketChannel ch) throws Exception {
-                     ChannelPipeline p = ch.pipeline();
+                     ChannelPipeline p = ch.pipeline();// 编排io事件 执行链
                      p.addLast(new RedisDecoder());
                      p.addLast(new RedisBulkStringAggregator());
                      p.addLast(new RedisArrayAggregator());
@@ -58,7 +58,9 @@ public class RedisClient {
                  }
              });
 
+            // 发起连接，得到NioSocketChannel
             // Start the connection attempt.
+            // connnect返回的是future（异步执行）
             Channel ch = b.connect(HOST, PORT).sync().channel();
 
             // Read commands from the stdin.

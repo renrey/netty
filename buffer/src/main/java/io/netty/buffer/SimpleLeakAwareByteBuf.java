@@ -33,17 +33,23 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
     final ResourceLeakTracker<ByteBuf> leak;
 
     SimpleLeakAwareByteBuf(ByteBuf wrapped, ByteBuf trackedByteBuf, ResourceLeakTracker<ByteBuf> leak) {
-        super(wrapped);
+        super(wrapped);// 当前代表buf
+        // 被追踪的主buf
         this.trackedByteBuf = ObjectUtil.checkNotNull(trackedByteBuf, "trackedByteBuf");
         this.leak = ObjectUtil.checkNotNull(leak, "leak");
     }
 
     SimpleLeakAwareByteBuf(ByteBuf wrapped, ResourceLeakTracker<ByteBuf> leak) {
+        /**
+         * @see ResourceLeakDetector#track(Object)
+         */
         this(wrapped, wrapped, leak);
     }
 
     @Override
     public ByteBuf slice() {
+        // super.slice(): 实际调用的被封装对象的
+        // newSharedLeakAwareByteBuf : 创建保装对象 -》返回1个SimpleLeakAwareByteBuf
         return newSharedLeakAwareByteBuf(super.slice());
     }
 
@@ -99,7 +105,9 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
 
     @Override
     public boolean release() {
-        if (super.release()) {
+        // 释放当前buf
+        if (super.release()) {// 释放被包装的
+            // 执行leak任务
             closeLeak();
             return true;
         }

@@ -71,6 +71,7 @@ public abstract class ObjectPool<T> {
         private final Recycler<T> recycler;
 
         RecyclerObjectPool(final ObjectCreator<T> creator) {
+            //
              recycler = new Recycler<T>() {
                 @Override
                 protected T newObject(Handle<T> handle) {

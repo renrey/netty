@@ -112,7 +112,8 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
     }
 
     private static InternalThreadLocalMap slowGet() {
-        InternalThreadLocalMap ret = slowThreadLocalMap.get();
+        InternalThreadLocalMap ret = slowThreadLocalMap.get();// java 线程本地生成map
+        // 放入到线程本地map
         if (ret == null) {
             ret = new InternalThreadLocalMap();
             slowThreadLocalMap.set(ret);

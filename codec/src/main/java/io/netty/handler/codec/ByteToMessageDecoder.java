@@ -87,8 +87,9 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             }
             try {
                 final int required = in.readableBytes();
+                // 判断本次in的大小，是否需要需要扩容cumulation
                 if (required > cumulation.maxWritableBytes() ||
-                        (required > cumulation.maxFastWritableBytes() && cumulation.refCnt() > 1) ||
+                        (required > cumulation.maxFastWritableBytes() && cumulation.refCnt() > 1) || // 还会判断refCnt
                         cumulation.isReadOnly()) {
                     // Expand cumulation (by replacing it) under the following conditions:
                     // - cumulation cannot be resized to accommodate the additional data
@@ -96,8 +97,10 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     //   assumed to be shared (e.g. refCnt() > 1) and the reallocation may not be safe.
                     return expandCumulation(alloc, cumulation, in);
                 }
-                cumulation.writeBytes(in, in.readerIndex(), required);
-                in.readerIndex(in.writerIndex());
+
+                // 代表当前cumulation足够写入
+                cumulation.writeBytes(in, in.readerIndex(), required);// 写入
+                in.readerIndex(in.writerIndex());// 等于in（即输入的msg）当前不会再读，没用了-》本次的内容已读完
                 return cumulation;
             } finally {
                 // We must release in in all cases as otherwise it may produce a leak if writeBytes(...) throw
@@ -151,6 +154,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
     private static final byte STATE_CALLING_CHILD_DECODE = 1;
     private static final byte STATE_HANDLER_REMOVED_PENDING = 2;
 
+    // 当前（线程）对象专门 用来存msg的 缓冲区
     ByteBuf cumulation;
     private Cumulator cumulator = MERGE_CUMULATOR;
     private boolean singleDecode;
@@ -265,14 +269,19 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     protected void handlerRemoved0(ChannelHandlerContext ctx) throws Exception { }
 
+    // 重写
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
+            // 申请CodecOutputList
             CodecOutputList out = CodecOutputList.newInstance();
             try {
                 first = cumulation == null;
                 // 1. 把这次进入buf追加到当前的cumulation（并把buf释放）
                 // 用于解决拆包问题
+                // first: 第一次进来
+                // 分配空间 ：大概初始使用EMPTY_BUFFER，cumulate后就用后的
+                // 就是把msg写入cumulation缓冲区
                 cumulation = cumulator.cumulate(ctx.alloc(),
                         first ? Unpooled.EMPTY_BUFFER : cumulation, (ByteBuf) msg);
                 // 2. 对已缓冲的cumulation进行decode
@@ -285,7 +294,9 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 try {
                     // 当前缓冲的cumulation已处理完，进行释放
                     if (cumulation != null && !cumulation.isReadable()) {
+                        // 即当前缓冲区的都被处理完（读完）了
                         numReads = 0;
+                        // 当前缓冲区完全释放掉
                         cumulation.release();
                         cumulation = null;
                     } else if (++numReads >= discardAfterReads) {
@@ -298,12 +309,16 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     int size = out.size();
                     firedChannelRead |= out.insertSinceRecycled();
                     // 下一个Handler进行处理
+                    // 按加入顺序把out（缓存）中每个对象
+                    //   向后执行第1个ChannelRead handler!!!
                     fireChannelRead(ctx, out, size);
                 } finally {
+                    // 回收out对象
                     out.recycle();
                 }
             }
         } else {
+            // 非byte流，向后执行第1个ChannelRead handler
             ctx.fireChannelRead(msg);
         }
     }
@@ -313,6 +328,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     static void fireChannelRead(ChannelHandlerContext ctx, List<Object> msgs, int numElements) {
         if (msgs instanceof CodecOutputList) {
+            // 这里
             fireChannelRead(ctx, (CodecOutputList) msgs, numElements);
         } else {
             for (int i = 0; i < numElements; i++) {
@@ -325,7 +341,9 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      * Get {@code numElements} out of the {@link CodecOutputList} and forward these through the pipeline.
      */
     static void fireChannelRead(ChannelHandlerContext ctx, CodecOutputList msgs, int numElements) {
+        // 遍历msgs（CodecOutputList）已缓存的对象
         for (int i = 0; i < numElements; i ++) {
+            // 按顺序执行
             ctx.fireChannelRead(msgs.getUnsafe(i));
         }
     }
@@ -433,9 +451,11 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             while (in.isReadable()) {
                 final int outSize = out.size();
 
+                // out（CodecOutputList） 有数据
                 if (outSize > 0) {
+                    // 把out的对象交给后面的第一个ChannelRead handler
                     fireChannelRead(ctx, out, outSize);
-                    out.clear();
+                    out.clear();// 清理掉out（CodecOutputList）
 
                     // Check if this handler was removed before continuing with decoding.
                     // If it was removed, it is not safe to continue to operate on the buffer.
@@ -449,6 +469,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
                 int oldInputLength = in.readableBytes();
                 // 进行调用子类实现的decode方法
+                // 执行模板方法decode！！！-》子类解析
                 decodeRemovalReentryProtection(ctx, in, out);
 
                 // Check if this handler was removed before continuing the loop.
@@ -511,6 +532,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             throws Exception {
         decodeState = STATE_CALLING_CHILD_DECODE;
         try {
+            // 执行模板方法！！！
             decode(ctx, in, out);
         } finally {
             boolean removePending = decodeState == STATE_HANDLER_REMOVED_PENDING;
